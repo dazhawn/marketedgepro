@@ -89,8 +89,7 @@ export default function SettingsPage() {
   "tp1": {{plot("TP1")}},
   "tp2": {{plot("TP2")}},
   "tp3": {{plot("TP3")}},
-  "timeframe": "{{interval}}",
-  "signalType": "Mtrend Flip"
+  "timeframe": "{{interval}}"
 }`;
 
   function copyWebhook() {
@@ -162,8 +161,7 @@ export default function SettingsPage() {
   "tp1": {{plot("TP1")}},
   "tp2": {{plot("TP2")}},
   "tp3": {{plot("TP3")}},
-  "timeframe": "{{interval}}",
-  "signalType": "Mtrend Flip"
+  "timeframe": "{{interval}}"
 }`}
               </pre>
               <button
