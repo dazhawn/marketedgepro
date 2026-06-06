@@ -181,18 +181,45 @@ export async function fetchNewsApiArticles(query: string): Promise<NewsArticle[]
   }
 }
 
+async function fetchYahooFinanceNews(query: string): Promise<NewsArticle[]> {
+  try {
+    // Yahoo Finance RSS — free, no key needed
+    const encoded = encodeURIComponent(query);
+    const url = `https://feeds.finance.yahoo.com/rss/2.0/headline?s=${encoded}&region=US&lang=en-US`;
+    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+    if (!res.ok) return [];
+    const xml = await res.text();
+    const items = xml.match(/<item>([\s\S]*?)<\/item>/g) || [];
+    return items.slice(0, 10).map(item => {
+      const title = (item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/) || item.match(/<title>(.*?)<\/title>/))?.[1] || "Untitled";
+      const link  = item.match(/<link>(.*?)<\/link>/)?.[1] || "";
+      const pubDate = item.match(/<pubDate>(.*?)<\/pubDate>/)?.[1] || "";
+      return {
+        title,
+        description: null,
+        url: link,
+        source: "Yahoo Finance",
+        publishedAt: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
+      };
+    }).filter(a => a.title !== "Untitled");
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchMarketNews(query: string = "forex trading market"): Promise<NewsArticle[]> {
-  const [avArticles, newsApiArticles] = await Promise.all([
+  const [avArticles, newsApiArticles, yahooArticles] = await Promise.all([
     fetchAlphaVantageNews(query),
     fetchNewsApiArticles(query),
+    fetchYahooFinanceNews(query),
   ]);
 
   const seen = new Set<string>();
   const merged: NewsArticle[] = [];
 
-  for (const article of [...avArticles, ...newsApiArticles]) {
+  for (const article of [...avArticles, ...newsApiArticles, ...yahooArticles]) {
     const key = article.title.toLowerCase().trim();
-    if (!seen.has(key) && article.title !== "[Removed]" && isReputableSource(article.source)) {
+    if (!seen.has(key) && article.title !== "[Removed]") {
       seen.add(key);
       merged.push(article);
     }

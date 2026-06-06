@@ -21,10 +21,10 @@ export interface SymbolBrief {
 
 export async function buildSymbolBrief(symbol: string, name: string): Promise<SymbolBrief | null> {
   const articles = await fetchMarketNews(symbol);
-  if (!articles.length) return null;
-
   const headlines = articles.slice(0, 3).map(a => `• ${a.title} *(${a.source})*`);
-  const newsContext = articles.slice(0, 5).map(a => `- ${a.title} (${a.source})`).join("\n");
+  const newsContext = articles.length
+    ? articles.slice(0, 5).map(a => `- ${a.title} (${a.source})`).join("\n")
+    : `No recent news available for ${symbol}. Provide analysis based on market data and general context.`;
 
   let marketDataContext = "";
   try {
