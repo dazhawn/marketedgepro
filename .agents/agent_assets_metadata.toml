@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "QwJx1L1u7AmzoHX3QaSdN"
+uri = "file://trading-confluence-dashboard.tar.gz"
+type = "unspecified"
+title = "Trading Confluence Dashboard — Full Source Code"

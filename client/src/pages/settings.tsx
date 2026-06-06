@@ -1,0 +1,274 @@
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { CheckCircle2, XCircle, Copy, Bell, MessageCircle, Smartphone, Radio, Zap, Brain, Sun, Loader2 } from "lucide-react";
+import { useState } from "react";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+import { Button } from "@/components/ui/button";
+
+function StatusRow({ label, active, description }: { label: string; active: boolean; description: string }) {
+  return (
+    <div className="flex items-center gap-3 py-3 border-b border-zinc-800 last:border-0">
+      {active
+        ? <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+        : <XCircle className="w-4 h-4 text-zinc-600 shrink-0" />}
+      <div className="flex-1 min-w-0">
+        <p className={`text-sm font-medium ${active ? "text-white" : "text-zinc-500"}`}>{label}</p>
+        <p className="text-xs text-zinc-600">{description}</p>
+      </div>
+      <span className={`text-xs px-2 py-0.5 rounded border ${
+        active ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-zinc-800 text-zinc-600 border-zinc-700"
+      }`}>
+        {active ? "Active" : "Not configured"}
+      </span>
+    </div>
+  );
+}
+
+function EnvRow({ varName, description }: { varName: string; description: string }) {
+  return (
+    <div className="py-2 border-b border-zinc-800/50 last:border-0">
+      <code className="text-xs text-amber-400 font-mono">{varName}</code>
+      <p className="text-xs text-zinc-500 mt-0.5">{description}</p>
+    </div>
+  );
+}
+
+export default function SettingsPage() {
+  const { toast } = useToast();
+  const [copied, setCopied] = useState(false);
+
+  const { data: notifs } = useQuery<{
+    pushover: boolean;
+    telegram: boolean;
+    ntfy: boolean;
+    signalCopier: boolean;
+    aiProvider: string;
+    aiModel: string;
+    aiConfigured: boolean;
+    discordBot: boolean;
+    discordChannels: Record<string, boolean>;
+  }>({ queryKey: ["/api/settings/notifications"] });
+
+  const { data: webhookInfo } = useQuery<{ secret: string }>({
+    queryKey: ["/api/signals/webhook-info"],
+  });
+
+  const morningBriefMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/morning-brief/trigger", {}),
+    onSuccess: (data: any) => {
+      if (data.sent) {
+        toast({ title: "Morning brief sent", description: `${data.symbolCount} symbols · ${data.calendarEventCount} calendar events dispatched to Discord.` });
+      } else {
+        toast({ title: "Not sent", description: data.message ?? "Nothing to send.", variant: "destructive" });
+      }
+    },
+    onError: () => toast({ title: "Failed", description: "Could not send morning brief.", variant: "destructive" }),
+  });
+
+  const webhookUrl = `${window.location.origin}/api/signals/webhook`;
+
+  function copyWebhook() {
+    navigator.clipboard.writeText(`${webhookUrl}?secret=${webhookInfo?.secret ?? ""}`);
+    setCopied(true);
+    toast({ title: "Copied", description: "Webhook URL copied to clipboard." });
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  const providerLabel = notifs?.aiProvider === "atlascloud" ? "Atlas Cloud" : "Anthropic";
+  const providerColor = notifs?.aiProvider === "atlascloud" ? "text-blue-400" : "text-purple-400";
+
+  return (
+    <div className="flex flex-col h-full bg-zinc-950 text-white overflow-y-auto">
+      <div className="border-b border-zinc-800 px-6 py-4">
+        <h1 className="text-xl font-bold">Settings</h1>
+        <p className="text-zinc-500 text-sm mt-0.5">Configure your notification channels and TradingView webhook.</p>
+      </div>
+
+      <div className="px-6 py-6 space-y-8 max-w-2xl">
+
+        {/* Webhook URL */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <Radio className="w-4 h-4 text-blue-400" />
+            <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">TradingView Webhook</h2>
+          </div>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+            <p className="text-xs text-zinc-500 mb-2">Paste this URL into your TradingView alert → Webhook URL field.</p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 text-xs font-mono text-zinc-300 bg-zinc-800 px-3 py-2 rounded truncate">
+                {webhookUrl}{webhookInfo?.secret ? `?secret=${webhookInfo.secret}` : ""}
+              </code>
+              <button
+                onClick={copyWebhook}
+                className="shrink-0 flex items-center gap-1.5 text-xs px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded transition-colors border border-zinc-700"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                {copied ? "Copied!" : "Copy"}
+              </button>
+            </div>
+            <p className="text-xs text-zinc-600 mt-2">Set <code className="text-amber-400">SESSION_SECRET</code> in your env to keep this URL private.</p>
+          </div>
+        </section>
+
+        {/* Morning Brief */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <Sun className="w-4 h-4 text-amber-400" />
+            <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Morning Brief</h2>
+          </div>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm text-zinc-300">Daily pre-market AI analysis for your watchlist</p>
+                <p className="text-xs text-zinc-500 mt-1">
+                  Auto-fires at <span className="text-zinc-300">8:00 AM EST</span> every day via the scheduler.
+                  Use the button to trigger it manually at any time.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => morningBriefMutation.mutate()}
+                disabled={morningBriefMutation.isPending}
+                className="shrink-0 bg-amber-500 hover:bg-amber-400 text-black font-semibold"
+              >
+                {morningBriefMutation.isPending
+                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />Sending…</>
+                  : <><Sun className="w-3.5 h-3.5 mr-1.5" />Send Now</>}
+              </Button>
+            </div>
+          </div>
+        </section>
+
+        {/* AI Provider */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <Brain className="w-4 h-4 text-purple-400" />
+            <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">AI Provider</h2>
+          </div>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+            {notifs ? (
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-sm font-semibold ${providerColor}`}>{providerLabel}</span>
+                    {notifs.aiConfigured
+                      ? <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      : <XCircle className="w-4 h-4 text-red-400" />}
+                  </div>
+                  <p className="text-xs text-zinc-500 mt-0.5 font-mono">{notifs.aiModel}</p>
+                </div>
+                <span className={`text-xs px-2 py-0.5 rounded border ${
+                  notifs.aiConfigured
+                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                    : "bg-red-500/10 text-red-400 border-red-500/20"
+                }`}>
+                  {notifs.aiConfigured ? "Configured" : "Missing API key"}
+                </span>
+              </div>
+            ) : (
+              <div className="text-zinc-600 text-sm">Loading…</div>
+            )}
+            <div className="mt-3 pt-3 border-t border-zinc-800 space-y-1.5 text-xs text-zinc-500">
+              <p>Set <code className="text-amber-400">AI_PROVIDER=atlascloud</code> + <code className="text-amber-400">ATLASCLOUD_API_KEY</code> to route analysis through Atlas Cloud.</p>
+              <p>Set <code className="text-amber-400">ATLAS_MODEL</code> to pick any Atlas Cloud LLM (default: <code className="text-zinc-300">anthropic/claude-sonnet-4.6</code>).</p>
+              <p>Leave <code className="text-amber-400">AI_PROVIDER</code> unset to use the Anthropic SDK directly.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* Phone Notifications */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <Smartphone className="w-4 h-4 text-purple-400" />
+            <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Phone Notifications</h2>
+          </div>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-lg">
+            {notifs ? (
+              <div className="px-4">
+                <StatusRow label="Pushover" active={notifs.pushover} description="Instant push alerts. Set PUSHOVER_TOKEN + PUSHOVER_USER_KEY" />
+                <StatusRow label="Telegram Bot" active={notifs.telegram} description="Send signals to a Telegram chat. Set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID" />
+                <StatusRow label="ntfy.sh" active={notifs.ntfy} description="Free push notifications. Set NTFY_TOPIC (and optionally NTFY_URL)" />
+              </div>
+            ) : (
+              <div className="p-4 text-zinc-600 text-sm">Loading…</div>
+            )}
+          </div>
+        </section>
+
+        {/* Discord Bot */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <MessageCircle className="w-4 h-4 text-indigo-400" />
+            <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Discord Bot</h2>
+          </div>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-lg">
+            {notifs ? (
+              <div className="px-4">
+                <StatusRow label="Bot connected" active={notifs.discordBot} description="Set DISCORD_BOT_TOKEN — bot routes signals to the correct tier channels" />
+                <StatusRow label="#free-preview" active={notifs.discordChannels?.free} description="DISCORD_FREE_CHANNEL_ID — teaser alerts, anyone can see" />
+                <StatusRow label="#currency-signals" active={notifs.discordChannels?.currency} description="DISCORD_CURRENCY_CHANNEL_ID — $10/month tier" />
+                <StatusRow label="#metals-signals" active={notifs.discordChannels?.metals} description="DISCORD_METALS_CHANNEL_ID — $10/month tier" />
+                <StatusRow label="#indices-signals" active={notifs.discordChannels?.indices} description="DISCORD_INDICES_CHANNEL_ID — $20/month tier" />
+                <StatusRow label="#morning-brief" active={notifs.discordChannels?.brief} description="DISCORD_BRIEF_CHANNEL_ID — daily AI analysis" />
+                <StatusRow label="#copier-alerts" active={notifs.discordChannels?.copier} description="DISCORD_COPIER_CHANNEL_ID — $50/month tier" />
+              </div>
+            ) : (
+              <div className="p-4 text-zinc-600 text-sm">Loading…</div>
+            )}
+          </div>
+        </section>
+
+        {/* Signal Copier */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <Zap className="w-4 h-4 text-amber-400" />
+            <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Signal Copier — $50/month</h2>
+          </div>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              <p className="text-sm text-amber-400 font-medium">Coming soon</p>
+            </div>
+            <p className="text-xs text-zinc-500 mt-2">
+              Automatically copy signals to subscriber MT4/MT5 accounts via a bridge EA.
+              Set <code className="text-amber-400">SIGNAL_COPIER_ENABLED=true</code> once the bridge is live.
+            </p>
+          </div>
+        </section>
+
+        {/* Env vars reference */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <Bell className="w-4 h-4 text-zinc-400" />
+            <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Environment Variables</h2>
+          </div>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2">
+            <EnvRow varName="SESSION_SECRET" description="Webhook authentication secret (required)" />
+            <EnvRow varName="DASHBOARD_PASSWORD" description="Admin login password" />
+            <EnvRow varName="DATABASE_URL" description="PostgreSQL connection string" />
+            <EnvRow varName="AI_PROVIDER" description="'anthropic' (default) or 'atlascloud'" />
+            <EnvRow varName="ANTHROPIC_API_KEY" description="Anthropic API key (used when AI_PROVIDER=anthropic)" />
+            <EnvRow varName="ATLASCLOUD_API_KEY" description="Atlas Cloud API key (used when AI_PROVIDER=atlascloud)" />
+            <EnvRow varName="ATLAS_MODEL" description="Atlas Cloud model ID override (default: anthropic/claude-sonnet-4.6)" />
+            <EnvRow varName="DISCORD_BOT_TOKEN" description="Discord bot token (from Discord Developer Portal)" />
+            <EnvRow varName="DISCORD_FREE_CHANNEL_ID" description="Channel ID for #free-preview (anyone)" />
+            <EnvRow varName="DISCORD_CURRENCY_CHANNEL_ID" description="Channel ID for #currency-signals ($10/month)" />
+            <EnvRow varName="DISCORD_METALS_CHANNEL_ID" description="Channel ID for #metals-signals ($10/month)" />
+            <EnvRow varName="DISCORD_INDICES_CHANNEL_ID" description="Channel ID for #indices-signals ($20/month)" />
+            <EnvRow varName="DISCORD_BRIEF_CHANNEL_ID" description="Channel ID for #morning-brief (paid members)" />
+            <EnvRow varName="DISCORD_COPIER_CHANNEL_ID" description="Channel ID for #copier-alerts ($50/month)" />
+            <EnvRow varName="PUSHOVER_TOKEN" description="Pushover app token" />
+            <EnvRow varName="PUSHOVER_USER_KEY" description="Pushover user/group key" />
+            <EnvRow varName="TELEGRAM_BOT_TOKEN" description="Telegram bot token (from @BotFather)" />
+            <EnvRow varName="TELEGRAM_CHAT_ID" description="Telegram chat/channel ID" />
+            <EnvRow varName="NTFY_TOPIC" description="ntfy.sh topic name for phone push" />
+            <EnvRow varName="NTFY_URL" description="Self-hosted ntfy server URL (optional)" />
+            <EnvRow varName="CHART_IMG_API_KEY" description="chart-img.com key for chart snapshots in Discord" />
+            <EnvRow varName="SIGNAL_COPIER_ENABLED" description="Set to true to activate signal copier (coming soon)" />
+          </div>
+        </section>
+
+      </div>
+    </div>
+  );
+}

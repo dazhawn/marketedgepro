@@ -1,0 +1,1 @@
+- [Auth model](auth-model.md) — admin-protected (not full-site gate): public GET reads, requireAuth on writes/expensive/secret routes; server is the real boundary, client {isAdmin} gating is cosmetic.
