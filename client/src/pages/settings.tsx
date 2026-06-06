@@ -305,13 +305,20 @@ export default function SettingsPage() {
           </div>
           <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
             <div className="flex items-center gap-3">
-              <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-              <p className="text-sm text-amber-400 font-medium">Coming soon</p>
+              <div className={`w-2 h-2 rounded-full ${notifs?.signalCopier ? "bg-emerald-500" : "bg-amber-500 animate-pulse"}`} />
+              <p className={`text-sm font-medium ${notifs?.signalCopier ? "text-emerald-400" : "text-amber-400"}`}>
+                {notifs?.signalCopier ? "Active — forwarding signals to TradersConnect" : "Inactive"}
+              </p>
             </div>
             <p className="text-xs text-zinc-500 mt-2">
-              Automatically copy signals to subscriber MT4/MT5 accounts via a bridge EA.
-              Set <code className="text-amber-400">SIGNAL_COPIER_ENABLED=true</code> once the bridge is live.
+              Forwards every signal to <a href="https://tradersconnect.com" target="_blank" rel="noopener" className="text-amber-400 underline">TradersConnect</a>,
+              which copies trades into subscriber MT4/MT5 accounts. Configure with:
             </p>
+            <ul className="text-xs text-zinc-500 mt-1 list-disc pl-5 space-y-0.5">
+              <li><code className="text-amber-400">SIGNAL_COPIER_ENABLED=true</code> — turn the forwarder on</li>
+              <li><code className="text-amber-400">TRADERSCONNECT_WEBHOOK_URL</code> — your TradersConnect signal-receiver URL</li>
+              <li><code className="text-amber-400">TRADERSCONNECT_API_KEY</code> — optional auth header</li>
+            </ul>
           </div>
         </section>
 
