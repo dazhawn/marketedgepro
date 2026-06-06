@@ -12,6 +12,7 @@ import { postSignalViaBot, postMorningBriefViaBot, getBotStatus } from "./servic
 import { sendPhoneNotification } from "./services/notifications";
 import { forwardToSignalCopier } from "./services/signal-copier";
 import { buildSymbolBrief } from "./services/scheduler";
+import { buildMarketPulse } from "./services/market-pulse";
 import { fetchEconomicCalendar, getTodayEvents, getTomorrowEvents, filterByHighImpact, filterByWatchlistCurrencies } from "./services/economic-calendar";
 import { requireAuth } from "./auth";
 
@@ -647,13 +648,18 @@ export async function registerRoutes(
       if (!watchlist.length) {
         return res.json({ sent: false, message: "No watchlist items" });
       }
-      // Build all briefs in parallel — cuts wall time from N*30s to ~30s total
-      const briefResults = await Promise.allSettled(
-        watchlist.map((item: any) => buildSymbolBrief(item.symbol, item.name))
-      );
+      // Build all briefs + market pulse in parallel
+      const [briefResults, pulseResult] = await Promise.all([
+        Promise.allSettled(watchlist.map((item: any) => buildSymbolBrief(item.symbol, item.name))),
+        buildMarketPulse().catch(err => {
+          console.error("[morning-brief] pulse failed:", err);
+          return undefined;
+        }),
+      ]);
       const briefs = briefResults
         .filter((r): r is PromiseFulfilledResult<any> => r.status === "fulfilled" && r.value != null)
         .map(r => r.value);
+      const pulse = pulseResult ?? undefined;
       if (!briefs.length) {
         return res.json({ sent: false, message: "No data found" });
       }
@@ -669,9 +675,9 @@ export async function registerRoutes(
       } catch { /* calendar is optional */ }
       // Use Discord bot if configured, fall back to webhook
       const sent = process.env.DISCORD_BOT_TOKEN
-        ? await postMorningBriefViaBot(briefs, calendarEvents)
+        ? await postMorningBriefViaBot(briefs, calendarEvents, pulse)
         : await sendMorningBrief(briefs, calendarEvents);
-      res.json({ sent, symbolCount: briefs.length, calendarEventCount: calendarEvents.length });
+      res.json({ sent, symbolCount: briefs.length, calendarEventCount: calendarEvents.length, pulseItems: pulse?.items.length ?? 0 });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to send morning brief" });
     }

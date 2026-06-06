@@ -3,6 +3,7 @@ import { Client, GatewayIntentBits, EmbedBuilder, TextChannel, ForumChannel, Cha
 type SendableChannel = TextChannel | ForumChannel;
 import { classifySymbol, categoryLabel, type SignalCategory } from "./signal-classifier.js";
 import type { SymbolBriefData, CalendarEventData } from "./discord.js";
+import type { MarketPulse } from "./market-pulse.js";
 
 let client: Client | null = null;
 let clientReady: Promise<void> | null = null;
@@ -186,7 +187,8 @@ export async function postSignalViaBot(signal: BotSignalAlert): Promise<void> {
 
 export async function postMorningBriefViaBot(
   symbols: SymbolBriefData[],
-  calendarEvents: CalendarEventData[] = []
+  calendarEvents: CalendarEventData[] = [],
+  pulse?: MarketPulse
 ): Promise<boolean> {
   const channelId = process.env[CHANNEL_ENV.brief];
   if (!channelId) return false;
@@ -198,6 +200,30 @@ export async function postMorningBriefViaBot(
     weekday: "long", year: "numeric", month: "long", day: "numeric",
     timeZone: "America/New_York",
   });
+
+  const embeds: EmbedBuilder[] = [];
+
+  // Market Pulse — quantitative snapshot + AI narrative
+  if (pulse && pulse.items.length > 0) {
+    // Build the snapshot grid: 2 items per row
+    const rows: string[] = [];
+    for (let i = 0; i < pulse.items.length; i += 2) {
+      const a = pulse.items[i];
+      const b = pulse.items[i + 1];
+      const fmtItem = (it: typeof a) => {
+        const sign = it.changePct >= 0 ? "+" : "";
+        const arrow = it.changePct >= 0 ? "🟢" : "🔴";
+        return `${it.emoji ?? ""} **${it.label}** ${it.price} ${arrow} ${sign}${it.changePct.toFixed(2)}%`;
+      };
+      rows.push(b ? `${fmtItem(a)}  •  ${fmtItem(b)}` : fmtItem(a));
+    }
+    const pulseEmbed = new EmbedBuilder()
+      .setTitle(`🌅 Market Pulse — ${now}`)
+      .setDescription(rows.join("\n") + (pulse.narrative ? `\n\n📝 *${pulse.narrative}*` : ""))
+      .setColor(0x0ea5e9)
+      .setFooter({ text: "Pre-Market Snapshot · Live data from Yahoo Finance" });
+    embeds.push(pulseEmbed);
+  }
 
   const briefEmbed = new EmbedBuilder()
     .setTitle(`☀️ Morning Market Brief — ${now}`)
@@ -217,7 +243,7 @@ export async function postMorningBriefViaBot(
     });
   }
 
-  const embeds = [briefEmbed];
+  embeds.push(briefEmbed);
 
   if (calendarEvents.length > 0) {
     const impactEmoji = (i: string) => i === "High" ? "🔴" : i === "Medium" ? "🟡" : "⚪";
