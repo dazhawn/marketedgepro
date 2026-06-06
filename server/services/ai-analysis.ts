@@ -108,7 +108,7 @@ async function analyzeViaAtlasCloud(prompt: string): Promise<AiAnalysisResult> {
   const apiKey = process.env.ATLASCLOUD_API_KEY;
   if (!apiKey) throw new Error("ATLASCLOUD_API_KEY is not set");
 
-  const model = process.env.ATLAS_MODEL ?? "anthropic/claude-sonnet-4.6";
+  const model = process.env.ATLAS_MODEL ?? "deepseek-ai/deepseek-v4-pro";
 
   const res = await fetch("https://api.atlascloud.ai/v1/chat/completions", {
     method: "POST",
@@ -174,7 +174,7 @@ export function getAiProviderStatus(): { provider: string; model: string; config
   if (provider === "atlascloud" || provider === "atlas") {
     return {
       provider: "atlascloud",
-      model: process.env.ATLAS_MODEL ?? "anthropic/claude-sonnet-4.6",
+      model: process.env.ATLAS_MODEL ?? "deepseek-ai/deepseek-v4-pro",
       configured: !!process.env.ATLASCLOUD_API_KEY,
     };
   }

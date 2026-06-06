@@ -251,7 +251,7 @@ export default function SettingsPage() {
             )}
             <div className="mt-3 pt-3 border-t border-zinc-800 space-y-1.5 text-xs text-zinc-500">
               <p>Set <code className="text-amber-400">AI_PROVIDER=atlascloud</code> + <code className="text-amber-400">ATLASCLOUD_API_KEY</code> to route analysis through Atlas Cloud.</p>
-              <p>Set <code className="text-amber-400">ATLAS_MODEL</code> to pick any Atlas Cloud LLM (default: <code className="text-zinc-300">anthropic/claude-sonnet-4.6</code>).</p>
+              <p>Set <code className="text-amber-400">ATLAS_MODEL</code> to pick any Atlas Cloud LLM (default: <code className="text-zinc-300">deepseek-ai/deepseek-v4-pro</code>).</p>
               <p>Leave <code className="text-amber-400">AI_PROVIDER</code> unset to use the Anthropic SDK directly.</p>
             </div>
           </div>
@@ -330,7 +330,7 @@ export default function SettingsPage() {
             <EnvRow varName="AI_PROVIDER" description="'anthropic' (default) or 'atlascloud'" />
             <EnvRow varName="ANTHROPIC_API_KEY" description="Anthropic API key (used when AI_PROVIDER=anthropic)" />
             <EnvRow varName="ATLASCLOUD_API_KEY" description="Atlas Cloud API key (used when AI_PROVIDER=atlascloud)" />
-            <EnvRow varName="ATLAS_MODEL" description="Atlas Cloud model ID override (default: anthropic/claude-sonnet-4.6)" />
+            <EnvRow varName="ATLAS_MODEL" description="Atlas Cloud model ID override (default: deepseek-ai/deepseek-v4-pro)" />
             <EnvRow varName="DISCORD_BOT_TOKEN" description="Discord bot token (from Discord Developer Portal)" />
             <EnvRow varName="DISCORD_FREE_CHANNEL_ID" description="Channel ID for #free-preview (anyone)" />
             <EnvRow varName="DISCORD_CURRENCY_CHANNEL_ID" description="Channel ID for #currency-signals ($10/month)" />
