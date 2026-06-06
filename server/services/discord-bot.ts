@@ -1,4 +1,6 @@
-import { Client, GatewayIntentBits, EmbedBuilder, TextChannel, ColorResolvable } from "discord.js";
+import { Client, GatewayIntentBits, EmbedBuilder, TextChannel, ForumChannel, ChannelType, ColorResolvable } from "discord.js";
+
+type SendableChannel = TextChannel | ForumChannel;
 import { classifySymbol, categoryLabel, type SignalCategory } from "./signal-classifier.js";
 import type { SymbolBriefData, CalendarEventData } from "./discord.js";
 
@@ -27,23 +29,36 @@ function getClient(): { bot: Client; ready: Promise<void> } | null {
   return { bot: client, ready: clientReady! };
 }
 
-async function getChannel(id: string | undefined): Promise<TextChannel | null> {
+async function getChannel(id: string | undefined): Promise<SendableChannel | null> {
   if (!id) { console.error("[discord-bot] No channel ID provided"); return null; }
   const result = getClient();
   if (!result) { console.error("[discord-bot] No client"); return null; }
   try {
-    // Wait for bot to be fully ready (up to 15s)
     await Promise.race([result.ready, new Promise((_, rej) => setTimeout(() => rej(new Error("ready timeout")), 15000))]);
     const ch = await result.bot.channels.fetch(id);
-    console.log(`[discord-bot] Fetched channel ${id}: type=${ch?.type}, isText=${ch instanceof TextChannel}, classname=${ch?.constructor?.name}`);
-    // Accept any text-based guild channel (TextChannel, NewsChannel, ThreadChannel, etc.)
-    if (ch && "send" in ch && typeof (ch as any).send === "function") {
-      return ch as TextChannel;
-    }
+    console.log(`[discord-bot] Fetched channel ${id}: type=${ch?.type}, classname=${ch?.constructor?.name}`);
+    if (ch instanceof TextChannel || ch instanceof ForumChannel) return ch;
   } catch (err) {
     console.error(`[discord-bot] Could not fetch channel ${id}:`, err);
   }
   return null;
+}
+
+async function sendToChannel(ch: SendableChannel, title: string, embeds: EmbedBuilder[]): Promise<boolean> {
+  try {
+    if (ch.type === ChannelType.GuildForum) {
+      await (ch as ForumChannel).threads.create({
+        name: title.slice(0, 100),
+        message: { embeds },
+      });
+    } else {
+      await (ch as TextChannel).send({ embeds });
+    }
+    return true;
+  } catch (err) {
+    console.error("[discord-bot] send failed:", err);
+    return false;
+  }
 }
 
 function fmt(v: number): string {
@@ -145,26 +160,27 @@ function buildFullEmbed(signal: BotSignalAlert, category: SignalCategory): Embed
 
 export async function postSignalViaBot(signal: BotSignalAlert): Promise<void> {
   const category = classifySymbol(signal.symbol);
+  const title = `${signal.symbol} ${signal.direction} ${signal.timeframe}`;
 
   // Post teaser to free channel
   const freeChannelId = process.env[CHANNEL_ENV.free];
   if (freeChannelId) {
     const ch = await getChannel(freeChannelId);
-    if (ch) await ch.send({ embeds: [buildTeaserEmbed(signal)] }).catch(e => console.error("[discord-bot] free send failed:", e));
+    if (ch) await sendToChannel(ch, title, [buildTeaserEmbed(signal)]);
   }
 
   // Post full signal to the category channel
   const catChannelId = process.env[CHANNEL_ENV[category]];
   if (catChannelId) {
     const ch = await getChannel(catChannelId);
-    if (ch) await ch.send({ embeds: [buildFullEmbed(signal, category)] }).catch(e => console.error("[discord-bot] category send failed:", e));
+    if (ch) await sendToChannel(ch, title, [buildFullEmbed(signal, category)]);
   }
 
   // Post to copier channel (all signals go there — copier members get everything)
   const copierChannelId = process.env[CHANNEL_ENV.copier];
   if (copierChannelId) {
     const ch = await getChannel(copierChannelId);
-    if (ch) await ch.send({ embeds: [buildFullEmbed(signal, category)] }).catch(e => console.error("[discord-bot] copier send failed:", e));
+    if (ch) await sendToChannel(ch, title, [buildFullEmbed(signal, category)]);
   }
 }
 
@@ -219,8 +235,7 @@ export async function postMorningBriefViaBot(
     );
   }
 
-  await ch.send({ embeds }).catch(e => console.error("[discord-bot] brief send failed:", e));
-  return true;
+  return await sendToChannel(ch, `Morning Brief — ${now}`, embeds);
 }
 
 export function getBotStatus(): { configured: boolean; channels: Record<string, boolean> } {
