@@ -317,38 +317,6 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* Env vars reference */}
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <Bell className="w-4 h-4 text-zinc-400" />
-            <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Environment Variables</h2>
-          </div>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2">
-            <EnvRow varName="SESSION_SECRET" description="Webhook authentication secret (required)" />
-            <EnvRow varName="DASHBOARD_PASSWORD" description="Admin login password" />
-            <EnvRow varName="DATABASE_URL" description="PostgreSQL connection string" />
-            <EnvRow varName="AI_PROVIDER" description="'anthropic' (default) or 'atlascloud'" />
-            <EnvRow varName="ANTHROPIC_API_KEY" description="Anthropic API key (used when AI_PROVIDER=anthropic)" />
-            <EnvRow varName="ATLASCLOUD_API_KEY" description="Atlas Cloud API key (used when AI_PROVIDER=atlascloud)" />
-            <EnvRow varName="ATLAS_MODEL" description="Atlas Cloud model ID override (default: deepseek-ai/deepseek-v4-pro)" />
-            <EnvRow varName="DISCORD_BOT_TOKEN" description="Discord bot token (from Discord Developer Portal)" />
-            <EnvRow varName="DISCORD_FREE_CHANNEL_ID" description="Channel ID for #free-preview (anyone)" />
-            <EnvRow varName="DISCORD_CURRENCY_CHANNEL_ID" description="Channel ID for #currency-signals ($10/month)" />
-            <EnvRow varName="DISCORD_METALS_CHANNEL_ID" description="Channel ID for #metals-signals ($10/month)" />
-            <EnvRow varName="DISCORD_INDICES_CHANNEL_ID" description="Channel ID for #indices-signals ($20/month)" />
-            <EnvRow varName="DISCORD_BRIEF_CHANNEL_ID" description="Channel ID for #morning-brief (paid members)" />
-            <EnvRow varName="DISCORD_COPIER_CHANNEL_ID" description="Channel ID for #copier-alerts ($50/month)" />
-            <EnvRow varName="PUSHOVER_TOKEN" description="Pushover app token" />
-            <EnvRow varName="PUSHOVER_USER_KEY" description="Pushover user/group key" />
-            <EnvRow varName="TELEGRAM_BOT_TOKEN" description="Telegram bot token (from @BotFather)" />
-            <EnvRow varName="TELEGRAM_CHAT_ID" description="Telegram chat/channel ID" />
-            <EnvRow varName="NTFY_TOPIC" description="ntfy.sh topic name for phone push" />
-            <EnvRow varName="NTFY_URL" description="Self-hosted ntfy server URL (optional)" />
-            <EnvRow varName="CHART_IMG_API_KEY" description="chart-img.com key for chart snapshots in Discord" />
-            <EnvRow varName="SIGNAL_COPIER_ENABLED" description="Set to true to activate signal copier (coming soon)" />
-          </div>
-        </section>
-
       </div>
     </div>
   );
