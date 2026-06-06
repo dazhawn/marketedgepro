@@ -66,12 +66,28 @@ export default function SettingsPage() {
   });
 
   const webhookUrl = `${window.location.origin}/api/signals/webhook`;
+  const [copiedTemplate, setCopiedTemplate] = useState(false);
+
+  const messageTemplate = `{
+  "symbol": "{{ticker}}",
+  "action": "BUY",
+  "price": {{close}},
+  "timeframe": "{{interval}}",
+  "message": "{{strategy.order.comment}}"
+}`;
 
   function copyWebhook() {
     navigator.clipboard.writeText(`${webhookUrl}?secret=${webhookInfo?.secret ?? ""}`);
     setCopied(true);
     toast({ title: "Copied", description: "Webhook URL copied to clipboard." });
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  function copyTemplate() {
+    navigator.clipboard.writeText(messageTemplate);
+    setCopiedTemplate(true);
+    toast({ title: "Copied", description: "Message template copied to clipboard." });
+    setTimeout(() => setCopiedTemplate(false), 2000);
   }
 
   const providerLabel = notifs?.aiProvider === "atlascloud" ? "Atlas Cloud" : "Anthropic";
@@ -107,6 +123,36 @@ export default function SettingsPage() {
               </button>
             </div>
             <p className="text-xs text-zinc-600 mt-2">Set <code className="text-amber-400">SESSION_SECRET</code> in your env to keep this URL private.</p>
+          </div>
+        </section>
+
+        {/* Message Template */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <MessageCircle className="w-4 h-4 text-blue-400" />
+            <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Alert Message Template</h2>
+          </div>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+            <p className="text-xs text-zinc-500 mb-2">Paste this into the <strong className="text-zinc-300">Message</strong> field of your TradingView alert. Change <code className="text-amber-400">"BUY"</code> to <code className="text-amber-400">"SELL"</code> as needed.</p>
+            <div className="relative">
+              <pre className="text-xs font-mono text-zinc-300 bg-zinc-800 px-3 py-3 rounded whitespace-pre overflow-x-auto">
+{`{
+  "symbol": "{{ticker}}",
+  "action": "BUY",
+  "price": {{close}},
+  "timeframe": "{{interval}}",
+  "message": "{{strategy.order.comment}}"
+}`}
+              </pre>
+              <button
+                onClick={copyTemplate}
+                className="absolute top-2 right-2 flex items-center gap-1.5 text-xs px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded transition-colors border border-zinc-600"
+              >
+                <Copy className="w-3 h-3" />
+                {copiedTemplate ? "Copied!" : "Copy"}
+              </button>
+            </div>
+            <p className="text-xs text-zinc-600 mt-2">TradingView fills <code className="text-zinc-400">{"{{ticker}}"}</code>, <code className="text-zinc-400">{"{{close}}"}</code>, and <code className="text-zinc-400">{"{{interval}}"}</code> automatically when the alert fires.</p>
           </div>
         </section>
 
