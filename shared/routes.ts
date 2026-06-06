@@ -186,9 +186,11 @@ export const api = {
         symbol: z.string().default("UNKNOWN"),
         timeframe: z.string().default("1H"),
         direction: z.string().default("NEUTRAL"),
+        action: z.string().nullable().optional(), // accepts BUY/SELL/LONG/SHORT — normalized into direction below
         signalType: z.string().default("Indicator Alert"),
         message: z.string().nullable().optional(),
         price: z.number().nullable().optional(),
+        entry: z.number().nullable().optional(),
         emaAlignment: z.string().nullable().optional(),
         rsiValue: z.number().nullable().optional(),
         renkoTrend: z.string().nullable().optional(),
@@ -200,6 +202,16 @@ export const api = {
         tp3: z.number().nullable().optional(),
         autoAnalyze: z.boolean().nullable().optional(),
         alert_message: z.string().nullable().optional(),
+      }).transform((data) => {
+        // Normalize `action` field to `direction` if direction wasn't supplied
+        if (data.action && data.direction === "NEUTRAL") {
+          const a = data.action.toUpperCase();
+          if (a === "BUY" || a === "LONG" || a === "1") data.direction = "BULLISH";
+          else if (a === "SELL" || a === "SHORT" || a === "-1") data.direction = "BEARISH";
+        }
+        // Use entry as price fallback so SL/TP show correctly
+        if (data.entry != null && data.price == null) data.price = data.entry;
+        return data;
       }),
       responses: {
         202: z.object({ ok: z.boolean(), message: z.string() }),

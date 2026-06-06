@@ -75,12 +75,13 @@ export default function SettingsPage() {
   "symbol": "{{ticker}}",
   "action": "BUY",
   "price": {{close}},
+  "entry": {{plot("ENTRY")}},
   "sl": {{plot("SL")}},
   "tp1": {{plot("TP1")}},
   "tp2": {{plot("TP2")}},
   "tp3": {{plot("TP3")}},
   "timeframe": "{{interval}}",
-  "message": "{{strategy.order.comment}}"
+  "signalType": "Mtrend Flip"
 }`;
 
   function copyWebhook() {
@@ -147,12 +148,13 @@ export default function SettingsPage() {
   "symbol": "{{ticker}}",
   "action": "BUY",
   "price": {{close}},
+  "entry": {{plot("ENTRY")}},
   "sl": {{plot("SL")}},
   "tp1": {{plot("TP1")}},
   "tp2": {{plot("TP2")}},
   "tp3": {{plot("TP3")}},
   "timeframe": "{{interval}}",
-  "message": "{{strategy.order.comment}}"
+  "signalType": "Mtrend Flip"
 }`}
               </pre>
               <button
