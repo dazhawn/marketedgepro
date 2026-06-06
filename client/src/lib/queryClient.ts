@@ -7,12 +7,29 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+const TOKEN_KEY = "mep_auth_token";
+
+export function saveAuthToken(token: string) {
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearAuthToken() {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+function authUrl(url: string): string {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (!token) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}secret=${encodeURIComponent(token)}`;
+}
+
 export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const res = await fetch(url, {
+  const res = await fetch(authUrl(url), {
     method,
     headers: data ? { "Content-Type": "application/json" } : {},
     body: data ? JSON.stringify(data) : undefined,
@@ -29,7 +46,7 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
+    const res = await fetch(authUrl(queryKey.join("/") as string), {
       credentials: "include",
     });
 

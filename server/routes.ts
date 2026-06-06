@@ -105,7 +105,9 @@ export async function registerRoutes(
       if (err) {
         return res.status(500).json({ message: "Session error" });
       }
-      return res.json({ authenticated: true });
+      // Return the webhook secret as a persistent token so the frontend
+      // can store it in localStorage and stay authenticated across redeploys
+      return res.json({ authenticated: true, token: process.env.SESSION_SECRET || "" });
     });
   });
 

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, saveAuthToken } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -19,7 +19,8 @@ export default function LoginPage() {
       const res = await apiRequest("POST", "/api/auth/login", { password: pw });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
+      if (data?.token) saveAuthToken(data.token);
       queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
       toast({ title: "Signed in", description: "You now have admin access." });
       setLocation("/");
