@@ -23,7 +23,7 @@ export default function LoginPage() {
       if (data?.token) saveAuthToken(data.token);
       queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
       toast({ title: "Signed in", description: "You now have admin access." });
-      setLocation("/");
+      setLocation("/admin/settings");
     },
     onError: (err: Error) => {
       toast({
