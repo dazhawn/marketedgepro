@@ -54,7 +54,10 @@ export default function SettingsPage() {
   });
 
   const morningBriefMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/morning-brief/trigger", {}),
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/morning-brief/trigger", {});
+      return res.json();
+    },
     onSuccess: (data: any) => {
       if (data.sent) {
         toast({ title: "Morning brief sent", description: `${data.symbolCount} symbols · ${data.calendarEventCount} calendar events dispatched to Discord.` });
@@ -72,6 +75,10 @@ export default function SettingsPage() {
   "symbol": "{{ticker}}",
   "action": "BUY",
   "price": {{close}},
+  "sl": {{plot("SL")}},
+  "tp1": {{plot("TP1")}},
+  "tp2": {{plot("TP2")}},
+  "tp3": {{plot("TP3")}},
   "timeframe": "{{interval}}",
   "message": "{{strategy.order.comment}}"
 }`;
@@ -140,6 +147,10 @@ export default function SettingsPage() {
   "symbol": "{{ticker}}",
   "action": "BUY",
   "price": {{close}},
+  "sl": {{plot("SL")}},
+  "tp1": {{plot("TP1")}},
+  "tp2": {{plot("TP2")}},
+  "tp3": {{plot("TP3")}},
   "timeframe": "{{interval}}",
   "message": "{{strategy.order.comment}}"
 }`}
