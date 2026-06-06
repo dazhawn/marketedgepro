@@ -325,7 +325,11 @@ export async function sendMorningBrief(
   calendarEvents: CalendarEventData[] = []
 ): Promise<boolean> {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
-  if (!webhookUrl) return false;
+  // Fall back to bot if no webhook URL configured
+  if (!webhookUrl) {
+    const { postMorningBriefViaBot } = await import("./discord-bot.js");
+    return postMorningBriefViaBot(symbols, calendarEvents);
+  }
 
   const now = new Date().toLocaleDateString("en-US", {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
