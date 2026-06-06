@@ -28,14 +28,18 @@ function getClient(): { bot: Client; ready: Promise<void> } | null {
 }
 
 async function getChannel(id: string | undefined): Promise<TextChannel | null> {
-  if (!id) return null;
+  if (!id) { console.error("[discord-bot] No channel ID provided"); return null; }
   const result = getClient();
-  if (!result) return null;
+  if (!result) { console.error("[discord-bot] No client"); return null; }
   try {
-    // Wait for bot to be fully ready (up to 10s)
-    await Promise.race([result.ready, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 10000))]);
+    // Wait for bot to be fully ready (up to 15s)
+    await Promise.race([result.ready, new Promise((_, rej) => setTimeout(() => rej(new Error("ready timeout")), 15000))]);
     const ch = await result.bot.channels.fetch(id);
-    if (ch instanceof TextChannel) return ch;
+    console.log(`[discord-bot] Fetched channel ${id}: type=${ch?.type}, isText=${ch instanceof TextChannel}, classname=${ch?.constructor?.name}`);
+    // Accept any text-based guild channel (TextChannel, NewsChannel, ThreadChannel, etc.)
+    if (ch && "send" in ch && typeof (ch as any).send === "function") {
+      return ch as TextChannel;
+    }
   } catch (err) {
     console.error(`[discord-bot] Could not fetch channel ${id}:`, err);
   }
