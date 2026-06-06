@@ -578,7 +578,16 @@ export async function registerRoutes(
       const { symbol = "XAUUSD", action = "BUY" } = req.body ?? {};
       const direction = action.toUpperCase() === "SELL" ? "BEARISH" : "BULLISH";
       const isBull = direction === "BULLISH";
-      const price = symbol === "XAUUSD" ? 2050 : symbol === "BTC" ? 95000 : 1.0850;
+
+      // Fetch the LIVE price from Yahoo Finance instead of hardcoding stale defaults
+      let price = 0;
+      try {
+        const quote = await fetchStockQuote(symbol);
+        price = parseFloat(quote.price);
+      } catch {
+        // Fallback only if Yahoo lookup fails
+        price = symbol === "XAUUSD" ? 4000 : symbol === "BTC" ? 95000 : 1.0850;
+      }
       const offset = price * 0.005;
 
       const testSignal = {
