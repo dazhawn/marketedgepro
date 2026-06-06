@@ -1,9 +1,24 @@
 // Classifies a trading symbol into one or more signal categories.
 // Each category maps to a Discord channel and a subscription tier.
 
-export type SignalCategory = "currency" | "metals" | "indices" | "other";
+export type SignalCategory = "currency" | "metals" | "indices" | "crypto" | "other";
 
 const METALS = new Set(["XAUUSD", "XAGUSD", "XPTUSD", "XAUEUR", "XAUGBP", "GOLD", "SILVER", "PLATINUM"]);
+
+const CRYPTO = new Set([
+  "BTC", "BTCUSD", "BTCUSDT", "XBTUSD", "BITCOIN",
+  "ETH", "ETHUSD", "ETHUSDT", "ETHEREUM",
+  "SOL", "SOLUSD", "SOLUSDT", "SOLANA",
+  "BNB", "BNBUSD", "BNBUSDT",
+  "XRP", "XRPUSD", "XRPUSDT", "RIPPLE",
+  "ADA", "ADAUSD", "ADAUSDT", "CARDANO",
+  "DOGE", "DOGEUSD", "DOGEUSDT",
+  "MATIC", "MATICUSD", "MATICUSDT", "POLYGON",
+  "DOT", "DOTUSD", "DOTUSDT", "POLKADOT",
+  "AVAX", "AVAXUSD", "AVAXUSDT", "AVALANCHE",
+  "LINK", "LINKUSD", "LINKUSDT", "CHAINLINK",
+  "LTC", "LTCUSD", "LTCUSDT", "LITECOIN",
+]);
 
 const INDICES = new Set([
   "US30", "DJI", "DOW", "DJ30",
@@ -28,6 +43,7 @@ export function classifySymbol(raw: string): SignalCategory {
 
   if (METALS.has(s)) return "metals";
   if (INDICES.has(s)) return "indices";
+  if (CRYPTO.has(s)) return "crypto";
 
   // Forex: 6-char pair of two known currencies (e.g. EURUSD, GBPJPY)
   if (s.length === 6) {
@@ -46,5 +62,5 @@ export function classifySymbol(raw: string): SignalCategory {
 }
 
 export function categoryLabel(cat: SignalCategory): string {
-  return { currency: "Currency", metals: "Metals", indices: "Indices", other: "Signal" }[cat];
+  return { currency: "Currency", metals: "Metals", indices: "Indices", crypto: "Crypto", other: "Signal" }[cat];
 }
