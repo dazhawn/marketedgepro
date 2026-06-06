@@ -586,7 +586,24 @@ export async function registerRoutes(
         price = parseFloat(quote.price);
       } catch {
         // Fallback only if Yahoo lookup fails
-        price = symbol === "XAUUSD" ? 4000 : symbol === "BTC" ? 95000 : 1.0850;
+        // Hardcoded fallbacks — update when prices drift far from these
+        const FALLBACK_PRICES: Record<string, number> = {
+          XAUUSD: 4365,   // Gold
+          XAGUSD: 31,     // Silver
+          XPTUSD: 950,    // Platinum
+          BTC: 95000,     // Bitcoin
+          ETH: 3400,      // Ethereum
+          "EUR/USD": 1.085,
+          "GBP/USD": 1.27,
+          "USD/JPY": 155,
+          "AUD/NZD": 1.10,
+          SPY: 600,
+          "^IXIC": 19500,
+          US30: 44000,
+          NAS100: 21000,
+          SPX500: 6000,
+        };
+        price = FALLBACK_PRICES[symbol] ?? 100;
       }
       const offset = price * 0.005;
 
