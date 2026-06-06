@@ -571,19 +571,63 @@ export async function registerRoutes(
     }
   });
 
+  // Test endpoint: fires a sample signal through the full webhook pipeline
+  // so the user can verify Discord routing without setting up a TradingView alert.
+  app.post("/api/signals/test-alert", requireAuth, async (req, res) => {
+    try {
+      const { symbol = "XAUUSD", action = "BUY" } = req.body ?? {};
+      const direction = action.toUpperCase() === "SELL" ? "BEARISH" : "BULLISH";
+      const isBull = direction === "BULLISH";
+      const price = symbol === "XAUUSD" ? 2050 : symbol === "BTC" ? 95000 : 1.0850;
+      const offset = price * 0.005;
+
+      const testSignal = {
+        symbol,
+        timeframe: "1H",
+        direction,
+        signalType: "Test Alert",
+        price,
+        entry: price,
+        sl:  isBull ? price - offset : price + offset,
+        tp1: isBull ? price + offset : price - offset,
+        tp2: isBull ? price + offset * 2 : price - offset * 2,
+        tp3: isBull ? price + offset * 3 : price - offset * 3,
+        message: "🧪 Test alert from MarketEdgePro settings page",
+      };
+
+      // Route through Discord bot
+      const { postSignalViaBot } = await import("./services/discord-bot.js");
+      await postSignalViaBot({
+        symbol: testSignal.symbol,
+        timeframe: testSignal.timeframe,
+        direction: testSignal.direction,
+        signalType: testSignal.signalType,
+        price: testSignal.price,
+        sl: testSignal.sl,
+        tp1: testSignal.tp1,
+        tp2: testSignal.tp2,
+        tp3: testSignal.tp3,
+      });
+
+      res.json({ ok: true, sent: testSignal });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Test alert failed" });
+    }
+  });
+
   app.post("/api/morning-brief/trigger", requireAuth, morningBriefRateLimiter, async (_req, res) => {
     try {
       const watchlist = await storage.getWatchlist();
       if (!watchlist.length) {
         return res.json({ sent: false, message: "No watchlist items" });
       }
-      const briefs = [];
-      for (const item of watchlist) {
-        try {
-          const brief = await buildSymbolBrief(item.symbol, item.name);
-          if (brief) briefs.push(brief);
-        } catch { /* skip */ }
-      }
+      // Build all briefs in parallel — cuts wall time from N*30s to ~30s total
+      const briefResults = await Promise.allSettled(
+        watchlist.map((item: any) => buildSymbolBrief(item.symbol, item.name))
+      );
+      const briefs = briefResults
+        .filter((r): r is PromiseFulfilledResult<any> => r.status === "fulfilled" && r.value != null)
+        .map(r => r.value);
       if (!briefs.length) {
         return res.json({ sent: false, message: "No data found" });
       }

@@ -68,6 +68,15 @@ export default function SettingsPage() {
     onError: () => toast({ title: "Failed", description: "Could not send morning brief.", variant: "destructive" }),
   });
 
+  const testAlertMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/signals/test-alert", { symbol: "XAUUSD", action: "BUY" });
+      return res.json();
+    },
+    onSuccess: () => toast({ title: "Test alert sent", description: "XAUUSD BUY signal dispatched to Discord — check #metals-signals and #free-preview." }),
+    onError: () => toast({ title: "Failed", description: "Could not send test alert.", variant: "destructive" }),
+  });
+
   const webhookUrl = `${window.location.origin}/api/signals/webhook`;
   const [copiedTemplate, setCopiedTemplate] = useState(false);
 
@@ -166,6 +175,19 @@ export default function SettingsPage() {
               </button>
             </div>
             <p className="text-xs text-zinc-600 mt-2">TradingView fills <code className="text-zinc-400">{"{{ticker}}"}</code>, <code className="text-zinc-400">{"{{close}}"}</code>, and <code className="text-zinc-400">{"{{interval}}"}</code> automatically when the alert fires.</p>
+            <div className="mt-3 pt-3 border-t border-zinc-800 flex items-center justify-between gap-3">
+              <p className="text-xs text-zinc-500">Send a fake XAUUSD BUY signal to verify Discord routing without setting up a TradingView alert.</p>
+              <Button
+                size="sm"
+                onClick={() => testAlertMutation.mutate()}
+                disabled={testAlertMutation.isPending}
+                className="shrink-0 bg-blue-500 hover:bg-blue-400 text-white font-semibold"
+              >
+                {testAlertMutation.isPending
+                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />Sending…</>
+                  : <><Zap className="w-3.5 h-3.5 mr-1.5" />Test Alert</>}
+              </Button>
+            </div>
           </div>
         </section>
 
