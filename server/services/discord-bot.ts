@@ -3,28 +3,38 @@ import { classifySymbol, categoryLabel, type SignalCategory } from "./signal-cla
 import type { SymbolBriefData, CalendarEventData } from "./discord.js";
 
 let client: Client | null = null;
+let clientReady: Promise<void> | null = null;
 
-function getClient(): Client | null {
+function getClient(): { bot: Client; ready: Promise<void> } | null {
   const token = process.env.DISCORD_BOT_TOKEN;
   if (!token) return null;
 
   if (!client) {
     client = new Client({ intents: [GatewayIntentBits.Guilds] });
-    client.login(token).catch(err => {
-      console.error("[discord-bot] Login failed:", err);
-      client = null;
+    clientReady = new Promise<void>((resolve, reject) => {
+      client!.once("ready", () => {
+        console.log("[discord-bot] Bot ready");
+        resolve();
+      });
+      client!.login(token).catch(err => {
+        console.error("[discord-bot] Login failed:", err);
+        client = null;
+        clientReady = null;
+        reject(err);
+      });
     });
   }
-  return client;
+  return { bot: client, ready: clientReady! };
 }
 
 async function getChannel(id: string | undefined): Promise<TextChannel | null> {
   if (!id) return null;
-  const bot = getClient();
-  if (!bot) return null;
+  const result = getClient();
+  if (!result) return null;
   try {
-    await bot.guilds.fetch(); // ensure cache populated
-    const ch = await bot.channels.fetch(id);
+    // Wait for bot to be fully ready (up to 10s)
+    await Promise.race([result.ready, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 10000))]);
+    const ch = await result.bot.channels.fetch(id);
     if (ch instanceof TextChannel) return ch;
   } catch (err) {
     console.error(`[discord-bot] Could not fetch channel ${id}:`, err);
