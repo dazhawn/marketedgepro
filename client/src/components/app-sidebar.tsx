@@ -19,15 +19,19 @@ import {
   Shield,
   LogOut,
   Zap,
+  Home,
+  Mail,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 const navItems = [
+  { title: "Landing Page", url: "/", icon: Home },
   { title: "Signal Feed", url: "/admin", icon: Radio },
   { title: "History", url: "/admin/history", icon: History },
   { title: "Settings", url: "/admin/settings", icon: Settings },
+  { title: "Waitlist", url: "/admin/waitlist", icon: Mail },
 ];
 
 function NavItem({ item, isActive }: { item: { title: string; url: string; icon: any }; isActive: boolean }) {

@@ -12,6 +12,8 @@ import HistoryPage from "@/pages/history";
 import SettingsPage from "@/pages/settings";
 import LoginPage from "@/pages/login";
 import LandingPage from "@/pages/landing";
+import IntroPage from "@/pages/intro";
+import WaitlistPage from "@/pages/waitlist";
 
 // Admin shell — sidebar layout, password protected routes
 function AdminShell() {
@@ -28,6 +30,7 @@ function AdminShell() {
             <Route path="/admin" component={SignalsPage} />
             <Route path="/admin/history" component={HistoryPage} />
             <Route path="/admin/settings" component={SettingsPage} />
+            <Route path="/admin/waitlist" component={WaitlistPage} />
             <Route path="/login" component={LoginPage} />
             <Route component={NotFound} />
           </Switch>
@@ -43,6 +46,7 @@ function Router() {
   return isAdmin ? <AdminShell /> : (
     <Switch>
       <Route path="/" component={LandingPage} />
+      <Route path="/intro" component={IntroPage} />
       <Route component={NotFound} />
     </Switch>
   );

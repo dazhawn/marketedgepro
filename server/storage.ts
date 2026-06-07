@@ -1,9 +1,10 @@
 import { db } from "./db";
 import {
-  analyses, watchlist, signals,
+  analyses, watchlist, signals, waitlist,
   type InsertAnalysis, type Analysis,
   type InsertWatchlistItem, type WatchlistItem,
   type InsertSignal, type Signal,
+  type InsertWaitlistEntry, type WaitlistEntry,
 } from "@shared/schema";
 import { eq, desc, sql } from "drizzle-orm";
 
@@ -21,6 +22,9 @@ export interface IStorage {
   markSignalAnalyzed(id: number): Promise<boolean>;
   updateSignalDirection(id: number, direction: string): Promise<boolean>;
   getLatestSignalForSymbol(symbol: string): Promise<Signal | undefined>;
+  getWaitlist(): Promise<WaitlistEntry[]>;
+  addToWaitlist(entry: InsertWaitlistEntry): Promise<WaitlistEntry>;
+  deleteWaitlistEntry(id: number): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -86,6 +90,19 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
+  async getWaitlist(): Promise<WaitlistEntry[]> {
+    return await db.select().from(waitlist).orderBy(desc(waitlist.createdAt));
+  }
+
+  async addToWaitlist(entry: InsertWaitlistEntry): Promise<WaitlistEntry> {
+    const [created] = await db.insert(waitlist).values(entry).returning();
+    return created;
+  }
+
+  async deleteWaitlistEntry(id: number): Promise<boolean> {
+    const result = await db.delete(waitlist).where(eq(waitlist.id, id)).returning();
+    return result.length > 0;
+  }
 }
 
 export const storage = new DatabaseStorage();

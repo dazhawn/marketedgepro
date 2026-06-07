@@ -64,6 +64,23 @@ function parsePlainTextSignal(text: string): Record<string, unknown> {
 }
 
 async function seedDatabase() {
+  // Ensure waitlist table exists (auto-migrate for the intro page signup form)
+  try {
+    const { sql } = await import("drizzle-orm");
+    const { db } = await import("./db.js");
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS waitlist (
+        id SERIAL PRIMARY KEY,
+        email VARCHAR(255) NOT NULL,
+        phone VARCHAR(30),
+        source VARCHAR(60) DEFAULT 'intro',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+  } catch (err) {
+    console.error("[seed] waitlist table create failed:", err);
+  }
+
   const existing = await storage.getWatchlist();
   if (existing.length === 0) {
     await storage.createWatchlistItem({ symbol: "EUR/USD", name: "Euro / US Dollar", type: "forex" });
@@ -527,6 +544,50 @@ export async function registerRoutes(
     res.json({ secret: process.env.SESSION_SECRET || "" });
   });
 
+  // Public waitlist signup — used by the intro page
+  const waitlistRateLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false });
+  app.post("/api/waitlist", waitlistRateLimiter, async (req, res) => {
+    try {
+      const schema = z.object({
+        email: z.string().email("Valid email is required"),
+        phone: z.string().optional().nullable(),
+        source: z.string().optional(),
+      });
+      const data = schema.parse(req.body ?? {});
+      const phone = data.phone?.trim() || null;
+      const entry = await storage.addToWaitlist({
+        email: data.email.trim().toLowerCase(),
+        phone,
+        source: data.source ?? "intro",
+      });
+      res.json({ ok: true, id: entry.id });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      res.status(500).json({ message: err?.message ?? "Failed to join waitlist" });
+    }
+  });
+
+  // Admin: list + delete waitlist entries
+  app.get("/api/waitlist", requireAuth, async (_req, res) => {
+    res.json(await storage.getWaitlist());
+  });
+
+  app.delete("/api/waitlist/:id", requireAuth, async (req, res) => {
+    const ok = await storage.deleteWaitlistEntry(Number(req.params.id));
+    if (!ok) return res.status(404).json({ message: "Not found" });
+    res.json({ ok: true });
+  });
+
+  // Public endpoint used by landing page — just the marketing-safe bits
+  app.get("/api/settings/notifications-public", (_req, res) => {
+    res.json({
+      signalCopierUrl: process.env.SIGNAL_COPIER_SIGNUP_URL ?? null,
+      discordInvite: process.env.DISCORD_INVITE_URL ?? null,
+    });
+  });
+
   // Returns which notification channels are currently configured (no secrets exposed)
   app.get("/api/settings/notifications", requireAuth, (_req, res) => {
     const ai = getAiProviderStatus();
@@ -536,6 +597,7 @@ export async function registerRoutes(
       telegram: !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID),
       ntfy: !!process.env.NTFY_TOPIC,
       signalCopier: !!process.env.SIGNAL_COPIER_ENABLED,
+      signalCopierUrl: process.env.SIGNAL_COPIER_SIGNUP_URL ?? null,
       aiProvider: ai.provider,
       aiModel: ai.model,
       aiConfigured: ai.configured,

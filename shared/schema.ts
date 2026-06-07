@@ -49,6 +49,18 @@ export const signals = pgTable("signals", {
   receivedAt: timestamp("received_at").defaultNow(),
 });
 
+export const waitlist = pgTable("waitlist", {
+  id: serial("id").primaryKey(),
+  email: varchar("email", { length: 255 }).notNull(),
+  phone: varchar("phone", { length: 30 }),
+  source: varchar("source", { length: 60 }).default("intro"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertWaitlistSchema = createInsertSchema(waitlist).omit({ id: true, createdAt: true });
+export type WaitlistEntry = typeof waitlist.$inferSelect;
+export type InsertWaitlistEntry = z.infer<typeof insertWaitlistSchema>;
+
 export const insertAnalysisSchema = createInsertSchema(analyses, {
   newsFactors: z.array(z.string()).nullable().optional(),
   technicalFactors: z.array(z.string()).nullable().optional(),
