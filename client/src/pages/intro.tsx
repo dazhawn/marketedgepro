@@ -317,19 +317,47 @@ export default function IntroPage() {
       <section className="px-6 py-20 bg-zinc-900/30">
         <div className="max-w-5xl mx-auto">
           <SectionHeading
-            eyebrow="Launch Pricing"
+            eyebrow="Founding-Member Pricing"
             title="Pick the tier that fits how you trade."
-            sub="Early-access pricing locked in for life — pricing goes up at public launch."
+            sub="Founding members lock in 50% off for life. Only 100 launch spots available — once they're gone, pricing returns to full and the waitlist reopens later."
           />
+
+          {/* Scarcity strip */}
+          <div className="mb-8 bg-gradient-to-r from-amber-500/10 via-rose-500/10 to-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-center">
+            <div className="inline-flex items-center gap-2 text-amber-400 font-bold text-sm">
+              <Sparkles className="w-4 h-4" />
+              FOUNDING-MEMBER OFFER — 100 SPOTS ONLY · 50% OFF FOR LIFE
+            </div>
+            <p className="text-xs text-zinc-400 mt-1">
+              Once 100 founding spots fill up, the waitlist closes until we open the next batch.
+              Sign up below to claim your spot before <strong className="text-white">August 1, 2026</strong>.
+            </p>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
-              { name: "All Signals", price: "$30", emphasis: false, features: ["Forex + Metals + Indices + Crypto", "Full entry, SL & TPs", "Daily AI brief", "Discord access"] },
-              { name: "Signal Copier", price: "$50", emphasis: true, features: ["Everything in All Signals", "Auto-copy MT4/MT5", "Risk management settings", "Priority support"] },
-              { name: "Single Category", price: "$10", emphasis: false, features: ["One of: Forex / Metals / Crypto", "Full SL & TPs", "Discord channel access", "Upgrade anytime"] },
+              {
+                name: "Single Category",
+                price: "$5", strike: "$10",
+                emphasis: false,
+                features: ["One of: Forex / Metals / Indices / Crypto", "Full entry, SL & TPs", "Discord channel access", "Upgrade anytime"],
+              },
+              {
+                name: "All Signals",
+                price: "$15", strike: "$30",
+                emphasis: false,
+                features: ["Forex + Metals + Indices + Crypto", "Full entry, SL & TPs", "Daily AI pre-market brief", "All Discord channels"],
+              },
+              {
+                name: "Signal Copier",
+                price: "$25", strike: "$50",
+                emphasis: true,
+                features: ["Everything in All Signals", "Auto-copy MT4/MT5 via SignalStart/MyFXBook", "Risk management settings", "Priority support"],
+              },
             ].map(t => (
               <div
                 key={t.name}
-                className={`rounded-xl p-5 ${t.emphasis ? "bg-gradient-to-br from-blue-500/20 to-purple-500/20 border-2 border-blue-500" : "bg-zinc-900 border border-zinc-800"}`}
+                className={`rounded-xl p-5 relative ${t.emphasis ? "bg-gradient-to-br from-blue-500/20 to-purple-500/20 border-2 border-blue-500" : "bg-zinc-900 border border-zinc-800"}`}
               >
                 {t.emphasis && (
                   <div className="inline-block bg-blue-500 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded mb-2">
@@ -337,10 +365,14 @@ export default function IntroPage() {
                   </div>
                 )}
                 <h3 className="text-lg font-bold">{t.name}</h3>
-                <div className="flex items-baseline gap-1 mb-4 mt-1">
+                <div className="flex items-baseline gap-2 mt-1">
                   <span className="text-3xl font-extrabold">{t.price}</span>
                   <span className="text-zinc-500 text-sm">/mo</span>
+                  <span className="text-zinc-500 text-sm line-through">{t.strike}</span>
                 </div>
+                <p className="text-[10px] text-emerald-400 font-semibold uppercase tracking-wider mb-4 mt-0.5">
+                  50% OFF · Founding member
+                </p>
                 <ul className="space-y-2">
                   {t.features.map(f => (
                     <li key={f} className="flex gap-2 text-xs text-zinc-300">
@@ -352,6 +384,11 @@ export default function IntroPage() {
               </div>
             ))}
           </div>
+
+          <p className="text-center text-xs text-zinc-500 mt-6 max-w-2xl mx-auto">
+            We may run occasional promotions later, but <strong className="text-zinc-300">this founding-member offer is our biggest discount —
+            50% off, locked in for life, only for the first 100 members.</strong>
+          </p>
         </div>
       </section>
 
