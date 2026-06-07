@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -130,6 +130,51 @@ function SignupForm({ source }: { source: string }) {
   );
 }
 
+// ─── Live "spots remaining" counter ───
+function useSpotsRemaining() {
+  return useQuery<{ total: number; max: number; remaining: number }>({
+    queryKey: ["/api/waitlist/count"],
+    refetchInterval: 30000, // refresh every 30s so the page feels alive
+    staleTime: 15000,
+  });
+}
+
+function SpotsRemainingBar({ compact = false }: { compact?: boolean }) {
+  const { data } = useSpotsRemaining();
+  const total     = data?.total ?? 0;
+  const max       = data?.max ?? 100;
+  const remaining = data?.remaining ?? max;
+  const pct       = Math.min(100, Math.round((total / max) * 100));
+  const isHot     = remaining <= 25;
+  const isLast    = remaining <= 10;
+
+  if (compact) {
+    return (
+      <span className={`inline-flex items-center gap-1.5 text-xs font-bold ${isLast ? "text-rose-300" : isHot ? "text-amber-300" : "text-emerald-300"}`}>
+        <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${isLast ? "bg-rose-400" : isHot ? "bg-amber-400" : "bg-emerald-400"}`} />
+        {remaining} / {max} spots left
+      </span>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between text-xs">
+        <span className={`font-bold ${isLast ? "text-rose-300" : isHot ? "text-amber-300" : "text-emerald-300"}`}>
+          {remaining === 0 ? "Waitlist is FULL" : `${remaining} founding spots remaining`}
+        </span>
+        <span className="text-zinc-500 font-mono tabular-nums">{total} / {max}</span>
+      </div>
+      <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-700 ${isLast ? "bg-gradient-to-r from-rose-500 to-red-500" : isHot ? "bg-gradient-to-r from-amber-500 to-orange-500" : "bg-gradient-to-r from-emerald-500 to-blue-500"}`}
+          style={{ width: `${Math.max(4, pct)}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 // ─── Reusable section heading ───
 function SectionHeading({ eyebrow, title, sub }: { eyebrow: string; title: string; sub?: string }) {
   return (
@@ -188,9 +233,14 @@ export default function IntroPage() {
         <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 via-transparent to-purple-500/10 pointer-events-none" />
         <div className="max-w-4xl mx-auto relative">
           <div className="text-center">
-            <div className="inline-flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 px-3 py-1 rounded-full text-xs font-semibold mb-6">
-              <Sparkles className="w-3 h-3" />
-              EARLY ACCESS — LIMITED LAUNCH SPOTS
+            <div className="flex flex-wrap items-center justify-center gap-3 mb-6">
+              <div className="inline-flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 px-3 py-1 rounded-full text-xs font-semibold">
+                <Sparkles className="w-3 h-3" />
+                EARLY ACCESS — FOUNDING MEMBER
+              </div>
+              <div className="inline-flex items-center gap-1.5 bg-zinc-900 border border-zinc-700 px-3 py-1 rounded-full">
+                <SpotsRemainingBar compact />
+              </div>
             </div>
             <div className="mb-8">
               <CountdownTimer />
@@ -322,16 +372,21 @@ export default function IntroPage() {
             sub="Founding members lock in 50% off for life. Only 100 launch spots available — once they're gone, pricing returns to full and the waitlist reopens later."
           />
 
-          {/* Scarcity strip */}
-          <div className="mb-8 bg-gradient-to-r from-amber-500/10 via-rose-500/10 to-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-center">
-            <div className="inline-flex items-center gap-2 text-amber-400 font-bold text-sm">
-              <Sparkles className="w-4 h-4" />
-              FOUNDING-MEMBER OFFER — 100 SPOTS ONLY · 50% OFF FOR LIFE
+          {/* Scarcity strip with live counter */}
+          <div className="mb-8 bg-gradient-to-r from-amber-500/10 via-rose-500/10 to-amber-500/10 border border-amber-500/30 rounded-xl p-5">
+            <div className="text-center mb-4">
+              <div className="inline-flex items-center gap-2 text-amber-400 font-bold text-sm">
+                <Sparkles className="w-4 h-4" />
+                FOUNDING-MEMBER OFFER — 100 SPOTS ONLY · 50% OFF FOR LIFE
+              </div>
+              <p className="text-xs text-zinc-400 mt-1">
+                Once 100 founding spots fill up, the waitlist closes until we open the next batch.
+                Sign up below to claim your spot before <strong className="text-white">August 1, 2026</strong>.
+              </p>
             </div>
-            <p className="text-xs text-zinc-400 mt-1">
-              Once 100 founding spots fill up, the waitlist closes until we open the next batch.
-              Sign up below to claim your spot before <strong className="text-white">August 1, 2026</strong>.
-            </p>
+            <div className="max-w-xl mx-auto">
+              <SpotsRemainingBar />
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -565,6 +620,9 @@ export default function IntroPage() {
             Drop your email below. We'll send launch details, early-bird pricing, and a free pre-launch sample brief.
           </p>
           <div className="max-w-md mx-auto">
+            <div className="mb-4 bg-zinc-900/60 border border-zinc-800 rounded-lg p-3">
+              <SpotsRemainingBar />
+            </div>
             <SignupForm source="intro-bottom" />
           </div>
           <div className="flex items-center justify-center gap-1 mt-6">

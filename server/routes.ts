@@ -569,6 +569,13 @@ export async function registerRoutes(
     }
   });
 
+  // Public: spots remaining counter for the founding-member offer
+  app.get("/api/waitlist/count", async (_req, res) => {
+    const max   = Number(process.env.FOUNDING_MAX_SPOTS ?? 100);
+    const total = (await storage.getWaitlist()).length;
+    res.json({ total, max, remaining: Math.max(0, max - total) });
+  });
+
   // Admin: list + delete waitlist entries
   app.get("/api/waitlist", requireAuth, async (_req, res) => {
     res.json(await storage.getWaitlist());
