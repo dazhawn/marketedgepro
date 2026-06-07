@@ -21,6 +21,7 @@ import {
   Zap,
   Home,
   Mail,
+  Sparkles,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -28,6 +29,7 @@ import { useToast } from "@/hooks/use-toast";
 
 const navItems = [
   { title: "Landing Page", url: "/", icon: Home },
+  { title: "Sales Page", url: "/intro", icon: Sparkles },
   { title: "Signal Feed", url: "/admin", icon: Radio },
   { title: "History", url: "/admin/history", icon: History },
   { title: "Settings", url: "/admin/settings", icon: Settings },
