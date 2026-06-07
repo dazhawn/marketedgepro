@@ -1,7 +1,7 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Mail, Trash2, Download, Phone } from "lucide-react";
+import { Mail, Trash2, Download, Phone, Users } from "lucide-react";
 
 interface WaitlistEntry {
   id: number;
@@ -14,6 +14,16 @@ interface WaitlistEntry {
 export default function WaitlistPage() {
   const { toast } = useToast();
   const { data: entries = [] } = useQuery<WaitlistEntry[]>({ queryKey: ["/api/waitlist"] });
+  const { data: count } = useQuery<{ total: number; max: number; remaining: number }>({
+    queryKey: ["/api/waitlist/count"],
+    refetchInterval: 30000,
+  });
+  const total     = count?.total ?? entries.length;
+  const max       = count?.max ?? 100;
+  const remaining = count?.remaining ?? Math.max(0, max - total);
+  const pct       = Math.min(100, Math.round((total / max) * 100));
+  const isHot     = remaining <= 25;
+  const isLast    = remaining <= 10;
 
   const del = useMutation({
     mutationFn: (id: number) => apiRequest("DELETE", `/api/waitlist/${id}`),
@@ -42,7 +52,7 @@ export default function WaitlistPage() {
       <div className="border-b border-zinc-800 px-6 py-4 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold">Waitlist</h1>
-          <p className="text-zinc-500 text-sm mt-0.5">{entries.length} signups from the intro page</p>
+          <p className="text-zinc-500 text-sm mt-0.5">{entries.length} signups from the sales page</p>
         </div>
         <button
           onClick={exportCsv}
@@ -52,6 +62,39 @@ export default function WaitlistPage() {
           <Download className="w-3.5 h-3.5" />
           Export CSV
         </button>
+      </div>
+
+      {/* Founding-member progress widget */}
+      <div className="px-6 pt-6">
+        <div className="max-w-3xl bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Users className={`w-4 h-4 ${isLast ? "text-rose-400" : isHot ? "text-amber-400" : "text-emerald-400"}`} />
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-300">Founding-Member Spots</h2>
+            </div>
+            <span className={`text-xs px-2 py-0.5 rounded border ${
+              isLast ? "bg-rose-500/10 text-rose-400 border-rose-500/30"
+              : isHot ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+              : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+            }`}>
+              {remaining === 0 ? "FULL" : remaining <= 10 ? "LAST CHANCE" : remaining <= 25 ? "FILLING FAST" : "OPEN"}
+            </span>
+          </div>
+          <div className="flex items-baseline gap-3 mb-3">
+            <span className="text-4xl font-extrabold text-white tabular-nums">{total}</span>
+            <span className="text-zinc-500 text-sm">/ {max} claimed</span>
+            <span className="ml-auto text-sm text-zinc-400 tabular-nums">{remaining} remaining</span>
+          </div>
+          <div className="h-3 bg-zinc-800 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-700 ${isLast ? "bg-gradient-to-r from-rose-500 to-red-500" : isHot ? "bg-gradient-to-r from-amber-500 to-orange-500" : "bg-gradient-to-r from-emerald-500 to-blue-500"}`}
+              style={{ width: `${Math.max(2, pct)}%` }}
+            />
+          </div>
+          <p className="text-[10px] text-zinc-600 mt-2">
+            Live count · refreshes every 30s · cap configurable via <code className="text-amber-400">FOUNDING_MAX_SPOTS</code>
+          </p>
+        </div>
       </div>
 
       <div className="px-6 py-6 max-w-3xl">
