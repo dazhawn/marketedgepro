@@ -419,7 +419,7 @@ export default function Dashboard() {
           <SidebarTrigger data-testid="button-sidebar-toggle" className="text-muted-foreground hover:text-foreground" />
           <div>
             <h1 className="text-base font-semibold leading-tight">Dashboard</h1>
-            <p className="text-[10px] font-mono text-muted-foreground/60 hidden sm:block">Trading Confluence · Predictive Ranges v5</p>
+            <p className="text-[10px] font-mono text-muted-foreground/60 hidden sm:block">Trading Confluence Hub</p>
           </div>
         </div>
         {isAdmin && (

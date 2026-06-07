@@ -44,10 +44,10 @@ function buildPrompt(
     if (signalData.renkoTrend) parts.push(`Renko Trend: ${signalData.renkoTrend}`);
     if (signalData.mtfScore) parts.push(`Multi-Timeframe Score: ${signalData.mtfScore}`);
     if (signalData.confluenceCount !== undefined) parts.push(`Confluence Count: ${signalData.confluenceCount}`);
-    signalSection = `\nTradingView Signal (Predictive Ranges v5):\n${parts.join("\n")}`;
+    signalSection = `\nTradingView Signal:\n${parts.join("\n")}`;
   }
 
-  return `You are an expert trading analyst specializing in technical and fundamental analysis for the Predictive Ranges v5 strategy (Renko-based with confluence scoring, EMA filters, RSI momentum, breakout structure, and multi-timeframe analysis).
+  return `You are an expert trading analyst specializing in technical and fundamental analysis for a Renko-based multi-timeframe confluence strategy (EMA filters, RSI momentum, breakout structure, and 4-TF analysis).
 
 Analyze the following market data and provide a trading confluence assessment:
 
@@ -62,7 +62,7 @@ ${marketDataContext || "No market data available"}
 ${signalSection}
 ${additionalContext ? `\nAdditional Context:\n${additionalContext}` : ""}
 
-${signalData ? `IMPORTANT: A TradingView signal from the Predictive Ranges v5 indicator has been received. Your job is to VALIDATE this signal against the current news sentiment and market data. Consider whether the fundamental picture supports or contradicts the technical signal. If the signal aligns with the fundamentals, give a higher confluence score. If there are significant contradictions (e.g., strong bearish news vs bullish signal), lower the score and explain why.` : ""}
+${signalData ? `IMPORTANT: A TradingView signal has been received. Your job is to VALIDATE this signal against the current news sentiment and market data. Consider whether the fundamental picture supports or contradicts the technical signal. If the signal aligns with the fundamentals, give a higher confluence score. If there are significant contradictions (e.g., strong bearish news vs bullish signal), lower the score and explain why.` : ""}
 
 Provide your analysis in the following JSON format (respond ONLY with valid JSON, no markdown):
 {
@@ -82,7 +82,7 @@ Consider these factors in your analysis:
 - Key support/resistance levels mentioned
 - Volume and volatility conditions
 - Multi-timeframe alignment
-- Risk/reward considerations for the Predictive Ranges strategy
+- Risk/reward considerations for a confluence-based swing strategy
 ${signalData ? "- Whether the TradingView signal direction aligns with fundamental sentiment\n- Strength of the technical signal (EMA alignment, RSI, Renko trend)\n- Multi-timeframe confluence from the indicator" : ""}`;
 }
 

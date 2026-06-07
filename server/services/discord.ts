@@ -192,7 +192,7 @@ export async function sendSignalToDiscord(signal: DiscordSignalAlert): Promise<b
     url: tvUrl,
     color,
     fields,
-    footer: { text: "Predictive Ranges v5 · TradingView Signal" },
+    footer: { text: "MarketEdgePro · TradingView Signal" },
     timestamp: new Date().toISOString(),
   };
 
@@ -274,7 +274,7 @@ export async function sendDiscordAlert(alert: DiscordAlert): Promise<boolean> {
           }] : []),
         ],
         footer: {
-          text: "Predictive Ranges v5 Confluence Dashboard",
+          text: "MarketEdgePro Confluence Dashboard",
         },
         timestamp: new Date().toISOString(),
       },
@@ -354,7 +354,7 @@ export async function sendMorningBrief(
     description: "AI-powered pre-market bias + news digest for your watchlist. New York session opens at 9:30 AM EST.",
     color: 0xf59e0b,
     fields: symbolFields,
-    footer: { text: "Predictive Ranges v5 · Daily Pre-Market Brief · 8:00 AM EST" },
+    footer: { text: "MarketEdgePro · Daily Pre-Market Brief · 8:00 AM EST" },
     timestamp: new Date().toISOString(),
   }];
 

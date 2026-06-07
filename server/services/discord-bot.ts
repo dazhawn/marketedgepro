@@ -142,7 +142,7 @@ function buildFullEmbed(signal: BotSignalAlert, category: SignalCategory): Embed
       { name: "Timeframe", value: signal.timeframe, inline: true },
       { name: "Direction", value: `${emoji} ${dir}`, inline: true },
     )
-    .setFooter({ text: `MarketEdgePro · ${categoryLabel(category)} Signals · Predictive Ranges v5` })
+    .setFooter({ text: `MarketEdgePro · ${categoryLabel(category)} Signals` })
     .setTimestamp();
 
   if (signal.price != null) embed.addFields({ name: "Price", value: fmt(signal.price), inline: true });

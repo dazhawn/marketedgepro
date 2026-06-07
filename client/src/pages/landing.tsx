@@ -185,7 +185,7 @@ export default function LandingPage() {
       <section className="max-w-4xl mx-auto text-center px-6 py-24">
         <div className="inline-flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold px-3 py-1.5 rounded-full mb-6">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          Live signals — Predictive Ranges v5
+          Live signals — AI-validated edge
         </div>
         <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight mb-6 leading-tight">
           Precision trading signals<br />
@@ -214,7 +214,7 @@ export default function LandingPage() {
       {/* How it works */}
       <section className="max-w-5xl mx-auto px-6 py-16 grid md:grid-cols-3 gap-8">
         {[
-          { icon: TrendingUp, title: "TradingView fires", desc: "Our Predictive Ranges v5 strategy fires a webhook the moment a confluence setup forms." },
+          { icon: TrendingUp, title: "TradingView fires", desc: "Our proprietary strategy fires a webhook the moment a multi-timeframe confluence setup forms." },
           { icon: Activity, title: "AI validates", desc: "Claude AI cross-checks the signal against news sentiment and market data before posting." },
           { icon: Shield, title: "Discord delivers", desc: "You get the signal in your tier's channel — entry, SL, TP1/2/3 — ready to trade." },
         ].map(({ icon: Icon, title, desc }) => (

@@ -149,7 +149,7 @@ export default function IntroPage() {
               </span>
             </h1>
             <p className="text-zinc-400 text-lg sm:text-xl leading-relaxed max-w-2xl mx-auto mb-8">
-              Forex, metals, indices, and crypto signals from the <strong className="text-white">Predictive Ranges v5</strong> strategy —
+              Forex, metals, indices, and crypto signals from our <strong className="text-white">proprietary multi-timeframe</strong> strategy —
               pre-validated by AI confluence scoring, delivered with full SL + 3 TPs, and auto-copyable to your MT4/MT5 account.
             </p>
             <div className="max-w-md mx-auto" id="signup-hero">
@@ -222,7 +222,7 @@ export default function IntroPage() {
               { icon: Bell,       title: "AI Pre-Market Brief", body: "Daily 8 AM EST report: market pulse, watchlist bias, AI narrative, and high-impact economic calendar.", color: "text-amber-400" },
               { icon: Bot,        title: "Auto-Copy to Broker", body: "Hands-free MT4/MT5 execution through SignalStart or MyFXBook. Set your lot size and walk away.", color: "text-emerald-400" },
               { icon: BarChart3,  title: "Multi-Asset Coverage", body: "Forex pairs, gold & silver, S&P / NAS / DOW indices, and major crypto — all from one strategy framework.", color: "text-pink-400" },
-              { icon: Target,     title: "Predictive Ranges v5", body: "Proprietary Renko-based strategy with EMA, RSI, and 4-timeframe confluence filtering for sharper entries.", color: "text-cyan-400" },
+              { icon: Target,     title: "Proprietary Edge", body: "Renko-based strategy with EMA, RSI, and 4-timeframe confluence filtering for sharper, higher-conviction entries.", color: "text-cyan-400" },
             ].map(({ icon: Icon, title, body, color }) => (
               <div key={title} className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 hover:border-zinc-700 transition-colors">
                 <Icon className={`w-6 h-6 ${color} mb-3`} />
@@ -243,7 +243,7 @@ export default function IntroPage() {
           />
           <div className="space-y-6">
             {[
-              { n: "1", t: "Pattern fires on TradingView", b: "Our Predictive Ranges v5 indicator detects an mtrend flip with confluence across 4 timeframes." },
+              { n: "1", t: "Pattern fires on TradingView", b: "Our proprietary indicator detects a confluence setup across 4 timeframes." },
               { n: "2", t: "AI validates the signal",     b: "DeepSeek V4 Pro cross-checks news sentiment, market data, and technical context. Signals scoring below threshold are filtered out." },
               { n: "3", t: "Posted to your Discord",      b: "Symbol auto-routes to the right channel — forex, metals, indices, or crypto. Free tier sees teasers; paid tiers see full SL/TP." },
               { n: "4", t: "Auto-executed on your broker", b: "Signal Copier subscribers get the trade copied into their MT4/MT5 account via SignalStart or MyFXBook. Zero clicks." },
@@ -353,7 +353,7 @@ export default function IntroPage() {
         <div className="max-w-6xl mx-auto flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-2">
             <Activity className="w-4 h-4 text-blue-400" />
-            <span className="text-sm text-zinc-400">© MarketEdgePro · Predictive Ranges v5 · Live</span>
+            <span className="text-sm text-zinc-400">© MarketEdgePro · Live Signal Hub</span>
           </div>
           <p className="text-[10px] text-zinc-600 max-w-md text-right">
             Trading involves substantial risk. Past performance does not guarantee future results.
