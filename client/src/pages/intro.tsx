@@ -397,10 +397,18 @@ export default function IntroPage() {
                   <li>Paste our webhook URL + message template (provided)</li>
                 </ol>
               </div>
-              <div className="flex items-center gap-2 text-xs">
-                <span className="text-2xl font-extrabold text-white">$25</span>
-                <span className="text-zinc-500">/mo</span>
-                <span className="ml-auto inline-flex items-center gap-1 text-blue-400 font-semibold cursor-pointer hover:text-blue-300">
+              <div className="flex items-end gap-2">
+                <div>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-2xl font-extrabold text-white">$25</span>
+                    <span className="text-zinc-500 text-xs">/mo</span>
+                    <span className="text-zinc-500 text-xs line-through">$50</span>
+                  </div>
+                  <p className="text-[10px] text-emerald-400 font-semibold uppercase tracking-wider mt-0.5">
+                    50% OFF · pre-launch
+                  </p>
+                </div>
+                <span className="ml-auto inline-flex items-center gap-1 text-blue-400 font-semibold text-xs cursor-pointer hover:text-blue-300">
                   Request access <ExternalLink className="w-3 h-3" />
                 </span>
               </div>
@@ -441,14 +449,35 @@ export default function IntroPage() {
                   <li>Set a "strategy" alert with our webhook URL → live execution starts</li>
                 </ol>
               </div>
-              <div className="flex items-center gap-2 text-xs">
-                <span className="text-2xl font-extrabold text-white">$45</span>
-                <span className="text-zinc-500">/mo</span>
-                <span className="ml-auto inline-flex items-center gap-1 text-purple-400 font-semibold cursor-pointer hover:text-purple-300">
+              <div className="flex items-end gap-2">
+                <div>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-2xl font-extrabold text-white">$50</span>
+                    <span className="text-zinc-500 text-xs">/mo</span>
+                    <span className="text-zinc-500 text-xs line-through">$100</span>
+                  </div>
+                  <p className="text-[10px] text-emerald-400 font-semibold uppercase tracking-wider mt-0.5">
+                    50% OFF · pre-launch
+                  </p>
+                </div>
+                <span className="ml-auto inline-flex items-center gap-1 text-purple-400 font-semibold text-xs cursor-pointer hover:text-purple-300">
                   Request access <ExternalLink className="w-3 h-3" />
                 </span>
               </div>
             </div>
+          </div>
+
+          {/* ── Early-bird banner ── */}
+          <div className="mt-6 bg-gradient-to-r from-amber-500/10 via-emerald-500/10 to-blue-500/10 border border-amber-500/30 rounded-xl p-4 text-center">
+            <div className="inline-flex items-center gap-2 text-amber-400 font-bold text-sm mb-1">
+              <Sparkles className="w-4 h-4" />
+              LIMITED-TIME PRE-LAUNCH OFFER
+            </div>
+            <p className="text-sm text-zinc-200">
+              Sign up before <strong className="text-white">August 1, 2026</strong> and lock in
+              <strong className="text-emerald-400"> 50% off for life</strong> on the Indicator and Strategy.
+              After launch, prices return to <span className="line-through text-zinc-500">$50</span> $100/mo.
+            </p>
           </div>
 
           {/* ── Quick comparison note ── */}
