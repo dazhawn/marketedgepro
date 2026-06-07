@@ -1,11 +1,61 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
   Activity, TrendingUp, Bell, Zap, Shield, Brain, Sparkles,
   Mail, Phone, ArrowRight, Check, Clock, ChevronDown, Star, BarChart3, Bot, Target,
+  LineChart, Wrench, ExternalLink, Copy,
 } from "lucide-react";
+
+// ─── Countdown Timer to public launch ───
+const LAUNCH_DATE = new Date("2026-08-01T00:00:00-04:00"); // Aug 1 2026, midnight EST
+
+function useCountdown(target: Date) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const diff = Math.max(0, target.getTime() - now.getTime());
+  const days    = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const hours   = Math.floor((diff / (1000 * 60 * 60)) % 24);
+  const minutes = Math.floor((diff / (1000 * 60)) % 60);
+  const seconds = Math.floor((diff / 1000) % 60);
+  return { days, hours, minutes, seconds, done: diff === 0 };
+}
+
+function CountdownTimer() {
+  const { days, hours, minutes, seconds, done } = useCountdown(LAUNCH_DATE);
+  if (done) {
+    return (
+      <div className="inline-block bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 px-4 py-2 rounded-lg text-sm font-bold">
+        🚀 We're live! Join now →
+      </div>
+    );
+  }
+  const cells = [
+    { label: "DAYS",    value: days },
+    { label: "HOURS",   value: hours },
+    { label: "MINUTES", value: minutes },
+    { label: "SECONDS", value: seconds },
+  ];
+  return (
+    <div>
+      <p className="text-xs uppercase tracking-widest text-zinc-500 mb-3 text-center">
+        🚀 Public Launch · August 1, 2026
+      </p>
+      <div className="grid grid-cols-4 gap-2 sm:gap-3 max-w-md mx-auto">
+        {cells.map(({ label, value }) => (
+          <div key={label} className="bg-zinc-900 border border-zinc-800 rounded-lg py-3 text-center">
+            <div className="text-2xl sm:text-3xl font-extrabold text-white tabular-nums">{String(value).padStart(2, "0")}</div>
+            <div className="text-[10px] uppercase tracking-wider text-zinc-500 mt-0.5">{label}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // ─── Waitlist signup form (reused at top + bottom of page) ───
 function SignupForm({ source }: { source: string }) {
@@ -141,6 +191,9 @@ export default function IntroPage() {
             <div className="inline-flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 px-3 py-1 rounded-full text-xs font-semibold mb-6">
               <Sparkles className="w-3 h-3" />
               EARLY ACCESS — LIMITED LAUNCH SPOTS
+            </div>
+            <div className="mb-8">
+              <CountdownTimer />
             </div>
             <h1 className="text-4xl sm:text-6xl font-extrabold leading-tight mb-6">
               AI-validated trading signals.<br />
@@ -298,6 +351,113 @@ export default function IntroPage() {
                 </ul>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══════════ DIY — USE THE INDICATOR / STRATEGY YOURSELF ═══════════ */}
+      <section className="px-6 py-20">
+        <div className="max-w-5xl mx-auto">
+          <SectionHeading
+            eyebrow="DIY Option"
+            title="Prefer to run it yourself? Get the Indicator or the Strategy."
+            sub="Same proprietary edge that powers our signals — now usable on your own TradingView charts. Choose the Indicator for manual trading or the Strategy for automation + backtesting."
+          />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {/* ── Indicator card ── */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 hover:border-blue-500/30 transition-colors">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                  <LineChart className="w-5 h-5 text-blue-400" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold">Indicator</h3>
+                  <p className="text-xs text-zinc-500">For manual & discretionary traders</p>
+                </div>
+              </div>
+              <p className="text-sm text-zinc-300 mb-4 leading-relaxed">
+                Plot signals, SL, TP1/TP2/TP3, trend bands, and multi-timeframe dashboard directly
+                on your TradingView chart. Set custom alerts and trade by hand.
+              </p>
+              <ul className="space-y-1.5 text-xs text-zinc-400 mb-5">
+                <li className="flex gap-2"><Check className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" /> Live signal markers + TP/SL levels</li>
+                <li className="flex gap-2"><Check className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" /> 4-timeframe confluence dashboard</li>
+                <li className="flex gap-2"><Check className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" /> Custom TradingView alerts with full JSON</li>
+                <li className="flex gap-2"><Check className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" /> Works on free TradingView account</li>
+              </ul>
+              <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-lg p-3 text-xs space-y-1.5 mb-4">
+                <p className="font-semibold text-blue-400 flex items-center gap-1.5">
+                  <Wrench className="w-3.5 h-3.5" /> Setup (5 minutes)
+                </p>
+                <ol className="space-y-1 text-zinc-400 list-decimal pl-4">
+                  <li>Open the invite link we send and add the indicator to your TradingView account</li>
+                  <li>Apply it to any symbol → adjust the MTF inputs to taste</li>
+                  <li>Right-click chart → Add Alert → select the firing condition</li>
+                  <li>Paste our webhook URL + message template (provided)</li>
+                </ol>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-2xl font-extrabold text-white">$25</span>
+                <span className="text-zinc-500">/mo</span>
+                <span className="ml-auto inline-flex items-center gap-1 text-blue-400 font-semibold cursor-pointer hover:text-blue-300">
+                  Request access <ExternalLink className="w-3 h-3" />
+                </span>
+              </div>
+            </div>
+
+            {/* ── Strategy card ── */}
+            <div className="relative bg-gradient-to-br from-purple-500/10 to-blue-500/10 border-2 border-purple-500/40 rounded-2xl p-6 hover:border-purple-500/60 transition-colors">
+              <div className="absolute -top-3 left-6 bg-purple-500 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded">
+                Backtest + Auto
+              </div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                  <Bot className="w-5 h-5 text-purple-400" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold">Strategy</h3>
+                  <p className="text-xs text-zinc-500">For automated traders & backtesters</p>
+                </div>
+              </div>
+              <p className="text-sm text-zinc-300 mb-4 leading-relaxed">
+                The same engine packaged as a Pine Strategy. Run full equity-curve backtests,
+                see win-rate / drawdown / PF, and connect to your broker for hands-free execution.
+              </p>
+              <ul className="space-y-1.5 text-xs text-zinc-400 mb-5">
+                <li className="flex gap-2"><Check className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" /> Full TradingView Strategy Tester report</li>
+                <li className="flex gap-2"><Check className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" /> Configurable position sizing & partial TPs</li>
+                <li className="flex gap-2"><Check className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" /> Auto-trade via PineConnector / 3Commas / Broker API</li>
+                <li className="flex gap-2"><Check className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" /> Session & confluence filters built-in</li>
+              </ul>
+              <div className="bg-zinc-900/60 border border-zinc-700/50 rounded-lg p-3 text-xs space-y-1.5 mb-4">
+                <p className="font-semibold text-purple-400 flex items-center gap-1.5">
+                  <Wrench className="w-3.5 h-3.5" /> Setup (10 minutes)
+                </p>
+                <ol className="space-y-1 text-zinc-400 list-decimal pl-4">
+                  <li>Open the invite link → add the strategy to your TradingView account</li>
+                  <li>Apply to a chart → review the backtest results in the Strategy Tester</li>
+                  <li>Tune entry mode, TP sizes, sessions, and risk settings to your taste</li>
+                  <li>Set a "strategy" alert with our webhook URL → live execution starts</li>
+                </ol>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-2xl font-extrabold text-white">$45</span>
+                <span className="text-zinc-500">/mo</span>
+                <span className="ml-auto inline-flex items-center gap-1 text-purple-400 font-semibold cursor-pointer hover:text-purple-300">
+                  Request access <ExternalLink className="w-3 h-3" />
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Quick comparison note ── */}
+          <div className="mt-8 bg-zinc-900/50 border border-zinc-800 rounded-xl p-4 text-center">
+            <p className="text-xs text-zinc-400">
+              <strong className="text-zinc-200">Not sure which?</strong> Pick the <span className="text-blue-400 font-semibold">Indicator</span> if you trade manually
+              and want chart visuals + alerts. Pick the <span className="text-purple-400 font-semibold">Strategy</span> if you want backtests + automation.
+              Or just grab the <span className="text-amber-400 font-semibold">Signal Copier</span> above and skip the setup entirely.
+            </p>
           </div>
         </div>
       </section>
