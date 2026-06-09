@@ -181,43 +181,93 @@ export async function fetchNewsApiArticles(query: string): Promise<NewsArticle[]
   }
 }
 
-async function fetchYahooFinanceNews(query: string): Promise<NewsArticle[]> {
+// Normalize symbol → human-readable search query for news engines
+function newsQueryFor(symbol: string): string {
+  const s = symbol.toUpperCase().replace(/[\/\-_\s]/g, "");
+  const map: Record<string, string> = {
+    XAUUSD: "gold price",
+    XAGUSD: "silver price",
+    XPTUSD: "platinum price",
+    BTC: "bitcoin",
+    BTCUSD: "bitcoin",
+    ETH: "ethereum",
+    ETHUSD: "ethereum",
+    SOL: "solana cryptocurrency",
+    "^IXIC": "nasdaq composite",
+    "^GSPC": "S&P 500",
+    "^DJI": "dow jones",
+    SPY: "S&P 500",
+    US30: "dow jones",
+    NAS100: "nasdaq",
+    SPX500: "S&P 500",
+    UK100: "FTSE 100",
+    DE40: "DAX",
+    EURUSD: "EUR USD forex",
+    GBPUSD: "GBP USD forex",
+    USDJPY: "USD JPY forex",
+    AUDUSD: "AUD USD forex",
+    AUDNZD: "AUD NZD forex",
+    USDCAD: "USD CAD forex",
+  };
+  return map[s] || `${symbol} forex trading`;
+}
+
+async function fetchGoogleNewsRss(query: string): Promise<NewsArticle[]> {
   try {
-    // Yahoo Finance RSS — free, no key needed
+    // Google News RSS — free, no key, supports any search query
     const encoded = encodeURIComponent(query);
-    const url = `https://feeds.finance.yahoo.com/rss/2.0/headline?s=${encoded}&region=US&lang=en-US`;
-    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+    const url = `https://news.google.com/rss/search?q=${encoded}&hl=en-US&gl=US&ceid=US:en`;
+    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (compatible; MarketEdgePro/1.0)" } });
     if (!res.ok) return [];
     const xml = await res.text();
     const items = xml.match(/<item>([\s\S]*?)<\/item>/g) || [];
-    return items.slice(0, 10).map(item => {
-      const title = (item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/) || item.match(/<title>(.*?)<\/title>/))?.[1] || "Untitled";
-      const link  = item.match(/<link>(.*?)<\/link>/)?.[1] || "";
-      const pubDate = item.match(/<pubDate>(.*?)<\/pubDate>/)?.[1] || "";
+
+    return items.slice(0, 12).map(item => {
+      // Google News uses CDATA for titles & wraps source name in the title after " - "
+      const rawTitle = (item.match(/<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/s)?.[1] ?? "").trim();
+      const link     = item.match(/<link>(.*?)<\/link>/)?.[1] ?? "";
+      const pubDate  = item.match(/<pubDate>(.*?)<\/pubDate>/)?.[1] ?? "";
+      const sourceEl = item.match(/<source[^>]*>(.*?)<\/source>/)?.[1] ?? "";
+
+      // Title format from Google News: "Headline text - Source Name"
+      let title = rawTitle;
+      let source = sourceEl || "Google News";
+      const dashSplit = rawTitle.lastIndexOf(" - ");
+      if (dashSplit > 0 && !sourceEl) {
+        title  = rawTitle.substring(0, dashSplit).trim();
+        source = rawTitle.substring(dashSplit + 3).trim();
+      } else if (dashSplit > 0 && sourceEl) {
+        title  = rawTitle.substring(0, dashSplit).trim();
+      }
+
       return {
         title,
         description: null,
         url: link,
-        source: "Yahoo Finance",
+        source,
         publishedAt: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
       };
-    }).filter(a => a.title !== "Untitled");
-  } catch {
+    }).filter(a => a.title && a.title !== "Untitled");
+  } catch (err) {
+    console.error("[news] Google News RSS fetch failed:", err);
     return [];
   }
 }
 
 export async function fetchMarketNews(query: string = "forex trading market"): Promise<NewsArticle[]> {
-  const [avArticles, newsApiArticles, yahooArticles] = await Promise.all([
+  // Translate raw symbol into a friendlier search query (e.g. "XAUUSD" -> "gold price")
+  const newsQuery = newsQueryFor(query);
+
+  const [avArticles, newsApiArticles, googleArticles] = await Promise.all([
     fetchAlphaVantageNews(query),
-    fetchNewsApiArticles(query),
-    fetchYahooFinanceNews(query),
+    fetchNewsApiArticles(newsQuery),
+    fetchGoogleNewsRss(newsQuery),
   ]);
 
   const seen = new Set<string>();
   const merged: NewsArticle[] = [];
 
-  for (const article of [...avArticles, ...newsApiArticles, ...yahooArticles]) {
+  for (const article of [...avArticles, ...newsApiArticles, ...googleArticles]) {
     const key = article.title.toLowerCase().trim();
     if (!seen.has(key) && article.title !== "[Removed]") {
       seen.add(key);
@@ -226,6 +276,10 @@ export async function fetchMarketNews(query: string = "forex trading market"): P
   }
 
   merged.sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
+
+  if (merged.length === 0) {
+    console.warn(`[news] No articles returned for "${query}" (mapped to "${newsQuery}")`);
+  }
 
   return merged;
 }
