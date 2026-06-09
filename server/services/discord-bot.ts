@@ -248,10 +248,33 @@ export async function postMorningBriefViaBot(
 
   if (calendarEvents.length > 0) {
     const impactEmoji = (i: string) => i === "High" ? "🔴" : i === "Medium" ? "🟡" : "⚪";
-    const lines = calendarEvents.map(e => {
-      const time = new Date(e.date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "America/New_York" });
-      return `${impactEmoji(e.impact)} **${e.country}** ${e.title} — ${time} EST${e.forecast ? ` | Forecast: ${e.forecast}` : ""}${e.previous ? ` | Prev: ${e.previous}` : ""}`;
-    });
+
+    // Label dates as Today / Tomorrow / weekday (Mon Jun 9) in EST
+    const todayEST = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    const tomorrowEST = new Date(Date.now() + 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    const dayLabel = (iso: string) => {
+      const d = new Date(iso);
+      const dKey = d.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+      if (dKey === todayEST)    return "**Today**";
+      if (dKey === tomorrowEST) return "**Tomorrow**";
+      return `**${d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "America/New_York" })}**`;
+    };
+
+    // Group by day for cleaner readability
+    const grouped: Record<string, typeof calendarEvents> = {};
+    for (const e of calendarEvents) {
+      const key = dayLabel(e.date);
+      (grouped[key] ??= []).push(e);
+    }
+
+    const lines: string[] = [];
+    for (const [day, dayEvents] of Object.entries(grouped)) {
+      lines.push(`\n${day}`);
+      for (const e of dayEvents) {
+        const time = new Date(e.date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "America/New_York" });
+        lines.push(`${impactEmoji(e.impact)} ${e.country} ${e.title} · ${time} EST${e.forecast ? ` | Forecast: ${e.forecast}` : ""}${e.previous ? ` | Prev: ${e.previous}` : ""}`);
+      }
+    }
 
     embeds.push(
       new EmbedBuilder()

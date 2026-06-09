@@ -4,6 +4,8 @@ import { fetchMarketNews } from "./news";
 import { fetchForexRate, fetchStockQuote } from "./market-data";
 import { analyzeMarket } from "./ai-analysis";
 import { sendMorningBrief } from "./discord";
+import { postMorningBriefViaBot } from "./discord-bot";
+import { buildMarketPulse } from "./market-pulse";
 import { fetchEconomicCalendar, getTodayEvents, getTomorrowEvents, filterByWatchlistCurrencies, type CalendarEvent } from "./economic-calendar";
 
 let schedulerStarted = false;
@@ -68,15 +70,18 @@ async function runMorningBrief(source: string) {
       return;
     }
 
-    const briefs: SymbolBrief[] = [];
-    for (const item of watchlist) {
-      try {
-        const brief = await buildSymbolBrief(item.symbol, item.name);
-        if (brief) briefs.push(brief);
-      } catch (err) {
-        console.error(`[scheduler] Failed to build brief for ${item.symbol}:`, err);
-      }
-    }
+    // Build briefs + market pulse in parallel (same as manual trigger)
+    const [briefSettled, pulseResult] = await Promise.all([
+      Promise.allSettled(watchlist.map(w => buildSymbolBrief(w.symbol, w.name))),
+      buildMarketPulse().catch(err => {
+        console.error("[scheduler] Market pulse failed:", err);
+        return undefined;
+      }),
+    ]);
+    const briefs: SymbolBrief[] = briefSettled
+      .filter((r): r is PromiseFulfilledResult<SymbolBrief | null> => r.status === "fulfilled" && r.value != null)
+      .map(r => r.value!);
+    const pulse = pulseResult ?? undefined;
 
     let calendarEvents: CalendarEvent[] = [];
     try {
@@ -92,8 +97,13 @@ async function runMorningBrief(source: string) {
     }
 
     if (briefs.length > 0) {
-      await sendMorningBrief(briefs, calendarEvents);
-      console.log(`[scheduler] Morning brief sent for ${briefs.length} symbols, ${calendarEvents.length} calendar events`);
+      // Prefer the Discord bot path (supports forum + text channels) when available
+      if (process.env.DISCORD_BOT_TOKEN) {
+        await postMorningBriefViaBot(briefs, calendarEvents, pulse);
+      } else {
+        await sendMorningBrief(briefs, calendarEvents);
+      }
+      console.log(`[scheduler] Morning brief sent: ${briefs.length} symbols, ${calendarEvents.length} calendar events, pulse=${pulse ? "yes" : "no"}`);
     }
   } catch (err) {
     console.error("[scheduler] Morning brief failed:", err);
