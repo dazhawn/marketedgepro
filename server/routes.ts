@@ -40,23 +40,69 @@ const discordRateLimiter = rateLimit({
   message: { message: "Too many Discord alert requests, please try again later." },
 });
 
+// Recognized tickers we can extract from plain-text alerts
+const KNOWN_TICKERS = [
+  // Forex
+  "EURUSD","GBPUSD","USDJPY","USDCHF","AUDUSD","NZDUSD","USDCAD",
+  "EURGBP","EURJPY","GBPJPY","EURAUD","EURCAD","EURCHF","EURNZD",
+  "GBPAUD","GBPCAD","GBPCHF","GBPNZD","AUDCAD","AUDCHF","AUDJPY",
+  "AUDNZD","CADJPY","CHFJPY","NZDJPY","NZDCAD","NZDCHF","CADCHF",
+  // Metals
+  "XAUUSD","XAGUSD","XPTUSD","XAUEUR","XAUGBP","GOLD","SILVER","PLATINUM",
+  // Indices
+  "US30","NAS100","SPX500","UK100","DE40","JP225","AU200","FR40","EU50","HK50",
+  "DJI","DOW","NDX","NASDAQ","SPX","SP500","FTSE","DAX",
+  // Crypto
+  "BTC","BTCUSD","BTCUSDT","ETH","ETHUSD","ETHUSDT","SOL","SOLUSD",
+  "BNB","XRP","ADA","DOGE","MATIC","DOT","AVAX","LINK","LTC",
+  // Stocks
+  "SPY","QQQ","DIA","IWM","SNDK","AAPL","TSLA","NVDA","AMZN","MSFT","GOOGL","META",
+];
+
+function extractSymbol(raw: string): string | null {
+  const upper = raw.toUpperCase();
+  // First try slash-separated forex (EUR/USD)
+  const slash = upper.match(/\b([A-Z]{3})\/([A-Z]{3})\b/);
+  if (slash) return `${slash[1]}/${slash[2]}`;
+  // Then ^prefixed indices (^IXIC, ^GSPC, ^DJI)
+  const caret = upper.match(/\^[A-Z]{2,5}\b/);
+  if (caret) return caret[0];
+  // Finally, longest known ticker that appears as a whole word
+  const candidates = KNOWN_TICKERS
+    .filter(t => new RegExp(`\\b${t}\\b`).test(upper))
+    .sort((a, b) => b.length - a.length);
+  return candidates[0] ?? null;
+}
+
 // Parse a plain-text TradingView alert (e.g. "[Pullback] Price retraced to Tsl
 // line within bear trend" or "[Chart TF] Main Trend turned Bullish") into a
-// signal-shaped object. Symbol falls back to "UNKNOWN" since native alerts
-// don't include a ticker.
-function parsePlainTextSignal(text: string): Record<string, unknown> {
+// signal-shaped object. Returns null for unparseable / non-actionable alerts
+// (e.g. price-cross alerts with no clear direction).
+function parsePlainTextSignal(text: string): Record<string, unknown> | null {
   const raw = (text ?? "").trim();
+  if (!raw) return null;
+
   let signalType = "Indicator Alert";
   const tagMatch = raw.match(/^\[([^\]]+)\]/);
   if (tagMatch) signalType = tagMatch[1].trim().slice(0, 30);
 
   const lower = raw.toLowerCase();
-  let direction = "NEUTRAL";
-  if (/\b(bull|bullish|buy|long)\b/.test(lower)) direction = "BULLISH";
-  else if (/\b(bear|bearish|sell|short)\b/.test(lower)) direction = "BEARISH";
+  let direction: "BULLISH" | "BEARISH" | "NEUTRAL" = "NEUTRAL";
+  if (/\b(bull|bullish|buy|long|▲|turned bullish|turned up)\b/.test(lower)) direction = "BULLISH";
+  else if (/\b(bear|bearish|sell|short|▼|turned bearish|turned down)\b/.test(lower)) direction = "BEARISH";
+
+  const symbol = extractSymbol(raw);
+
+  // Drop alerts that carry neither a recognized symbol nor a directional bias.
+  // These are usually TradingView's built-in price-cross alerts ("XAUUSD
+  // Crossing 4,102.581") which aren't real trade signals.
+  if (!symbol && direction === "NEUTRAL") {
+    console.log(`[webhook] Dropping plain-text alert with no symbol/direction: "${raw.substring(0, 80)}"`);
+    return null;
+  }
 
   return {
-    symbol: "UNKNOWN",
+    symbol: symbol ?? "UNKNOWN",
     direction,
     signalType,
     message: raw || null,
@@ -170,6 +216,21 @@ export async function registerRoutes(
 
       if (!body || (typeof body === "object" && Object.keys(body).length === 0)) {
         return res.status(400).json({ message: "Empty request body. Ensure your TradingView alert message is not blank." });
+      }
+
+      // Reject signals that came through as fully UNKNOWN — these are
+      // unparseable plain-text alerts (price-cross etc.) and would just
+      // clutter Discord with "Signal Signal: UNKNOWN — NEUTRAL" cards.
+      if (typeof body === "object" && body !== null) {
+        const bSymbol    = (body as any).symbol;
+        const bDirection = (body as any).direction;
+        const bAction    = (body as any).action;
+        const symLike    = bSymbol && bSymbol !== "UNKNOWN" && bSymbol !== "{{ticker}}";
+        const dirLike    = (bDirection && bDirection !== "NEUTRAL") || bAction;
+        if (!symLike && !dirLike) {
+          console.log(`[webhook] Rejecting UNKNOWN/NEUTRAL signal: ${JSON.stringify(body).substring(0, 120)}`);
+          return res.status(200).json({ ok: true, message: "Signal skipped — no recognizable symbol or direction" });
+        }
       }
 
       let input;
