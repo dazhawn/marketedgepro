@@ -288,7 +288,8 @@ export default function SettingsPage() {
                 <StatusRow label="#free-preview" active={notifs.discordChannels?.free} description="DISCORD_FREE_CHANNEL_ID — teaser alerts, anyone can see" />
                 <StatusRow label="#currency-signals" active={notifs.discordChannels?.currency} description="DISCORD_CURRENCY_CHANNEL_ID — $10/month tier" />
                 <StatusRow label="#metals-signals" active={notifs.discordChannels?.metals} description="DISCORD_METALS_CHANNEL_ID — $10/month tier" />
-                <StatusRow label="#indices-signals" active={notifs.discordChannels?.indices} description="DISCORD_INDICES_CHANNEL_ID — $20/month tier" />
+                <StatusRow label="#crypto-signals" active={notifs.discordChannels?.crypto} description="DISCORD_CRYPTO_CHANNEL_ID — $10/month tier" />
+                <StatusRow label="#stocks-alerts" active={notifs.discordChannels?.stocks} description="DISCORD_STOCKS_CHANNEL_ID — stocks + indices ($20/month tier)" />
                 <StatusRow label="#morning-brief" active={notifs.discordChannels?.brief} description="DISCORD_BRIEF_CHANNEL_ID — daily AI analysis" />
                 <StatusRow label="#copier-alerts" active={notifs.discordChannels?.copier} description="DISCORD_COPIER_CHANNEL_ID — $50/month tier" />
               </div>

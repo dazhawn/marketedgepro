@@ -252,7 +252,7 @@ export default function IntroPage() {
               </span>
             </h1>
             <p className="text-zinc-400 text-lg sm:text-xl leading-relaxed max-w-2xl mx-auto mb-8">
-              Forex, metals, indices, and crypto signals from our <strong className="text-white">proprietary multi-timeframe</strong> strategy —
+              Forex, metals, stocks, indices, and crypto signals from our <strong className="text-white">proprietary multi-timeframe</strong> strategy —
               pre-validated by AI confluence scoring, delivered with full SL + 3 TPs, and auto-copyable to your MT4/MT5 account.
             </p>
             <div className="max-w-md mx-auto" id="signup-hero">
@@ -348,7 +348,7 @@ export default function IntroPage() {
             {[
               { n: "1", t: "Pattern fires on TradingView", b: "Our proprietary indicator detects a confluence setup across 4 timeframes." },
               { n: "2", t: "AI validates the signal",     b: "DeepSeek V4 Pro cross-checks news sentiment, market data, and technical context. Signals scoring below threshold are filtered out." },
-              { n: "3", t: "Posted to your Discord",      b: "Symbol auto-routes to the right channel — forex, metals, indices, or crypto. Free tier sees teasers; paid tiers see full SL/TP." },
+              { n: "3", t: "Posted to your Discord",      b: "Symbol auto-routes to the right channel — forex, metals, stocks/indices, or crypto. Free tier sees teasers; paid tiers see full SL/TP." },
               { n: "4", t: "Auto-executed on your broker", b: "Signal Copier subscribers get the trade copied into their MT4/MT5 account via SignalStart or MyFXBook. Zero clicks." },
             ].map(({ n, t, b }) => (
               <div key={n} className="flex gap-4">
@@ -395,13 +395,13 @@ export default function IntroPage() {
                 name: "Single Category",
                 price: "$5", strike: "$10",
                 emphasis: false,
-                features: ["One of: Forex / Metals / Indices / Crypto", "Full entry, SL & TPs", "Discord channel access", "Upgrade anytime"],
+                features: ["One of: Forex / Metals / Stocks / Crypto", "Full entry, SL & TPs", "Discord channel access", "Upgrade anytime"],
               },
               {
                 name: "All Signals",
                 price: "$15", strike: "$30",
                 emphasis: false,
-                features: ["Forex + Metals + Indices + Crypto", "Full entry, SL & TPs", "Daily AI pre-market brief", "All Discord channels"],
+                features: ["Forex + Metals + Stocks/Indices + Crypto", "Full entry, SL & TPs", "Daily AI pre-market brief", "All Discord channels"],
               },
               {
                 name: "Signal Copier",

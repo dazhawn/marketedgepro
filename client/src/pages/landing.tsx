@@ -52,16 +52,16 @@ const tiers = [
     ctaStyle: "bg-yellow-600 hover:bg-yellow-500 text-white",
   },
   {
-    name: "Indices Signals",
+    name: "Stocks Signals",
     price: "$20",
     period: "/month",
-    description: "US30, NAS100, SPX500 and major global indices.",
+    description: "SPY, QQQ, mega-caps (AAPL/NVDA/TSLA) + major global indices.",
     color: "border-purple-500/50",
     badge: "",
     features: [
-      "US30, NAS100, SPX500, UK100, DE40 & more",
+      "SPY, QQQ, AAPL, NVDA, TSLA, META & more",
+      "US30, NAS100, SPX500, UK100, DE40 indices",
       "Entry price, Stop Loss, TP1 / TP2 / TP3",
-      "EMA, RSI, Renko & MTF confluence data",
       "Morning market brief",
     ],
     cta: "Subscribe",
@@ -71,14 +71,14 @@ const tiers = [
     name: "All Signals",
     price: "$30",
     period: "/month",
-    description: "Every signal we post. Currencies + Metals + Indices in one tier.",
+    description: "Every signal we post. Forex + Metals + Stocks/Indices + Crypto in one tier.",
     color: "border-emerald-500",
     badge: "Best Value",
     features: [
-      "Everything in Currency + Metals + Indices",
-      "Currencies, Metals & Indices — all covered",
+      "Forex, Metals, Stocks/Indices & Crypto — all covered",
       "Entry price, Stop Loss, TP1 / TP2 / TP3",
-      "Priority morning market brief",
+      "Daily AI pre-market brief",
+      "Priority access in Discord",
     ],
     cta: "Best Deal →",
     ctaStyle: "bg-emerald-600 hover:bg-emerald-500 text-white font-bold",
@@ -193,7 +193,7 @@ export default function LandingPage() {
         </h1>
         <p className="text-zinc-400 text-xl max-w-2xl mx-auto mb-10">
           TradingView-powered signals with full entry, Stop Loss, and Take Profit levels.
-          Currencies, Metals, and Indices — pick your market.
+          Currencies, Metals, Stocks/Indices, and Crypto — pick your market.
         </p>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <a
