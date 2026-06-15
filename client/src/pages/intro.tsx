@@ -628,40 +628,6 @@ export default function IntroPage() {
             ))}
           </div>
 
-          {/* Sample analysis card — mock to show what subscribers receive */}
-          <div className="bg-gradient-to-br from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-2xl p-6">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-                  <Activity className="w-4 h-4 text-white" />
-                </div>
-                <div>
-                  <p className="text-sm font-bold">MarketEdgePro</p>
-                  <p className="text-[10px] text-zinc-500">Live Analysis · #stocks-alerts</p>
-                </div>
-              </div>
-              <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Sample</span>
-            </div>
-            <div className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-4">
-              <p className="text-sm text-zinc-200 leading-relaxed mb-3">
-                <span className="text-blue-400 font-bold">📊 NAS100 — Pre-NY Setup</span><br />
-                Price holding above the 1H Tsl band at <span className="font-mono">21,485</span> after a clean retest of yesterday's POC.
-                4H trend just flipped bullish on the last brick — confluence stacking up with the 1D trend also up.
-              </p>
-              <p className="text-xs text-zinc-400 leading-relaxed mb-3">
-                <strong className="text-emerald-400">Watching:</strong> If we hold above 21,450 through the NY open, looking for a continuation
-                push toward <span className="font-mono">21,640</span>. Below 21,420 invalidates the setup — DXY strength would be the tell.
-              </p>
-              <div className="flex flex-wrap gap-2 text-[10px]">
-                <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded">4/4 TFs Bullish</span>
-                <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded">RSI 58</span>
-                <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 rounded">CPI 8:30 AM</span>
-              </div>
-            </div>
-            <p className="text-xs text-zinc-500 text-center mt-4">
-              Sample of the kind of analysis paid subscribers receive in Discord throughout the trading day.
-            </p>
-          </div>
         </div>
       </section>
 
