@@ -6,6 +6,7 @@ import {
   Activity, TrendingUp, Bell, Zap, Shield, Brain, Sparkles,
   Mail, Phone, ArrowRight, Check, Clock, ChevronDown, Star, BarChart3, Bot, Target,
   LineChart, Wrench, ExternalLink, Copy,
+  PenLine, MessageSquare, ClipboardCheck, Eye,
 } from "lucide-react";
 
 // ─── Countdown Timer to public launch ───
@@ -401,13 +402,13 @@ export default function IntroPage() {
                 name: "All Signals",
                 price: "$15", strike: "$30",
                 emphasis: false,
-                features: ["Forex + Metals + Stocks/Indices + Crypto", "Full entry, SL & TPs", "Daily AI pre-market brief", "All Discord channels"],
+                features: ["Forex + Metals + Stocks/Indices + Crypto", "Full entry, SL & TPs", "Daily AI pre-market brief", "Live trade analysis & breakdowns", "All Discord channels"],
               },
               {
                 name: "Signal Copier",
                 price: "$25", strike: "$50",
                 emphasis: true,
-                features: ["Everything in All Signals", "Auto-copy MT4/MT5 via SignalStart/MyFXBook", "Risk management settings", "Priority support"],
+                features: ["Everything in All Signals", "Auto-copy MT4/MT5 via SignalStart/MyFXBook", "Live trade analysis & breakdowns", "Risk management settings", "Priority support"],
               },
             ].map(t => (
               <div
@@ -583,6 +584,87 @@ export default function IntroPage() {
         </div>
       </section>
 
+      {/* ═══════════ BEYOND SIGNALS — LIVE ANALYSIS ═══════════ */}
+      <section className="px-6 py-20 bg-zinc-900/30">
+        <div className="max-w-5xl mx-auto">
+          <SectionHeading
+            eyebrow="Beyond the Signals"
+            title="Learn the why — not just the what."
+            sub="Signals tell you when to enter. Our live analysis tells you why the setup matters, what to watch, and how it played out. Every paid subscriber gets it inside Discord."
+          />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+            {[
+              {
+                icon: PenLine,
+                title: "Chart Breakdowns",
+                body: "Annotated screenshots of live setups — key levels, confluence factors, entry/exit reasoning so you understand the trade as it unfolds.",
+                color: "text-blue-400",
+              },
+              {
+                icon: ClipboardCheck,
+                title: "Daily & Weekly Recaps",
+                body: "What moved markets today, what's on the calendar tomorrow, and which setups to watch heading into the next session.",
+                color: "text-amber-400",
+              },
+              {
+                icon: Eye,
+                title: "Post-Trade Reviews",
+                body: "After signals close, we break down why they worked or didn't — turning every trade into an education moment, not just a win/loss.",
+                color: "text-emerald-400",
+              },
+              {
+                icon: MessageSquare,
+                title: "Live Session Commentary",
+                body: "Real-time thoughts in Discord as setups develop — price action, order flow, what we're watching during London + NY opens.",
+                color: "text-purple-400",
+              },
+            ].map(({ icon: Icon, title, body, color }) => (
+              <div key={title} className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 hover:border-zinc-700 transition-colors">
+                <Icon className={`w-6 h-6 ${color} mb-3`} />
+                <h3 className="font-bold text-base mb-2">{title}</h3>
+                <p className="text-xs text-zinc-400 leading-relaxed">{body}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Sample analysis card — mock to show what subscribers receive */}
+          <div className="bg-gradient-to-br from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-2xl p-6">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                  <Activity className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold">MarketEdgePro</p>
+                  <p className="text-[10px] text-zinc-500">Live Analysis · #stocks-alerts</p>
+                </div>
+              </div>
+              <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Sample</span>
+            </div>
+            <div className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-4">
+              <p className="text-sm text-zinc-200 leading-relaxed mb-3">
+                <span className="text-blue-400 font-bold">📊 NAS100 — Pre-NY Setup</span><br />
+                Price holding above the 1H Tsl band at <span className="font-mono">21,485</span> after a clean retest of yesterday's POC.
+                4H trend just flipped bullish on the last brick — confluence stacking up with the 1D trend also up.
+              </p>
+              <p className="text-xs text-zinc-400 leading-relaxed mb-3">
+                <strong className="text-emerald-400">Watching:</strong> If we hold above 21,450 through the NY open, looking for a continuation
+                push toward <span className="font-mono">21,640</span>. Below 21,420 invalidates the setup — DXY strength would be the tell.
+              </p>
+              <div className="flex flex-wrap gap-2 text-[10px]">
+                <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded">4/4 TFs Bullish</span>
+                <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded">RSI 58</span>
+                <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 rounded">CPI 8:30 AM</span>
+              </div>
+            </div>
+            <p className="text-xs text-zinc-500 text-center mt-4">
+              Sample of the kind of analysis paid subscribers receive in Discord throughout the trading day.
+            </p>
+          </div>
+        </div>
+      </section>
+
       {/* ═══════════ FAQ ═══════════ */}
       <section className="px-6 py-20">
         <div className="max-w-3xl mx-auto">
@@ -599,6 +681,8 @@ export default function IntroPage() {
                 a: "Every signal carries entry + SL + 3 scaled TPs and is AI-validated against news sentiment and multi-timeframe trend before posting. You see the AI confidence score on every alert." },
               { q: "Can I cancel anytime?",
                 a: "Yes — all tiers are month-to-month via Discord Monetize. Cancel from your Discord subscriptions page." },
+              { q: "Do I just get signals, or analysis too?",
+                a: "Both. Every paid tier includes live trade analysis inside Discord — chart breakdowns, daily/weekly recaps, post-trade reviews, and real-time session commentary so you learn the why behind each setup, not just the entry." },
               { q: "What if signals don't perform?",
                 a: "We post the full record in the History channel — wins and losses both visible. Strategy is back-tested across multiple timeframes and live-tracked in the dashboard." },
             ].map(f => <FaqItem key={f.q} {...f} />)}
