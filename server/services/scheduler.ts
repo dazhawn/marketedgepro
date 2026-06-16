@@ -23,6 +23,7 @@ export interface SymbolBrief {
 
 export async function buildSymbolBrief(symbol: string, name: string): Promise<SymbolBrief | null> {
   const articles = await fetchMarketNews(symbol);
+  console.log(`[brief] ${symbol}: ${articles.length} articles`);
   const headlines = articles.slice(0, 3).map(a => `• ${a.title} *(${a.source})*`);
   const newsContext = articles.length
     ? articles.slice(0, 5).map(a => `- ${a.title} (${a.source})`).join("\n")
@@ -87,10 +88,14 @@ async function runMorningBrief(source: string) {
     try {
       const allEvents = await fetchEconomicCalendar();
       const symbols = watchlist.map(w => w.symbol);
-      const todayEvents = filterByWatchlistCurrencies(getTodayEvents(allEvents), symbols);
-      const tomorrowEvents = filterByWatchlistCurrencies(getTomorrowEvents(allEvents), symbols);
-      calendarEvents = [...todayEvents, ...tomorrowEvents]
-        .filter(e => e.impact === "High" || e.impact === "Medium")
+      const todayRaw    = getTodayEvents(allEvents);
+      const tomorrowRaw = getTomorrowEvents(allEvents);
+      // Always include ALL High-impact events (they move every market).
+      // Only filter Medium events by watchlist currency relevance.
+      const all = [...todayRaw, ...tomorrowRaw];
+      const highOnly   = all.filter(e => e.impact === "High");
+      const mediumRel  = filterByWatchlistCurrencies(all.filter(e => e.impact === "Medium"), symbols);
+      calendarEvents = [...highOnly, ...mediumRel]
         .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     } catch (err) {
       console.error("[scheduler] Failed to fetch economic calendar:", err);

@@ -217,10 +217,22 @@ async function fetchGoogleNewsRss(query: string): Promise<NewsArticle[]> {
     // Google News RSS — free, no key, supports any search query
     const encoded = encodeURIComponent(query);
     const url = `https://news.google.com/rss/search?q=${encoded}&hl=en-US&gl=US&ceid=US:en`;
-    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (compatible; MarketEdgePro/1.0)" } });
-    if (!res.ok) return [];
+    // 8s timeout — Railway has a short ingress timeout and we don't want to hang the brief
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; MarketEdgePro/1.0)" },
+      signal: controller.signal,
+    }).finally(() => clearTimeout(t));
+    if (!res.ok) {
+      console.warn(`[news] Google News non-200 for "${query}": ${res.status}`);
+      return [];
+    }
     const xml = await res.text();
     const items = xml.match(/<item>([\s\S]*?)<\/item>/g) || [];
+    if (items.length === 0) {
+      console.warn(`[news] Google News returned 0 items for "${query}" (xml ${xml.length} bytes)`);
+    }
 
     return items.slice(0, 12).map(item => {
       // Google News uses CDATA for titles & wraps source name in the title after " - "

@@ -797,10 +797,12 @@ export async function registerRoutes(
       try {
         const allEvents = await fetchEconomicCalendar();
         const symbols = watchlist.map((w: any) => w.symbol);
-        const todayEvents = filterByWatchlistCurrencies(getTodayEvents(allEvents), symbols);
-        const tomorrowEvents = filterByWatchlistCurrencies(getTomorrowEvents(allEvents), symbols);
-        calendarEvents = [...todayEvents, ...tomorrowEvents]
-          .filter(e => e.impact === "High" || e.impact === "Medium")
+        const all = [...getTodayEvents(allEvents), ...getTomorrowEvents(allEvents)];
+        // Always include High-impact (they affect every market);
+        // only filter Medium by watchlist currency relevance.
+        const highOnly  = all.filter(e => e.impact === "High");
+        const mediumRel = filterByWatchlistCurrencies(all.filter(e => e.impact === "Medium"), symbols);
+        calendarEvents = [...highOnly, ...mediumRel]
           .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       } catch { /* calendar is optional */ }
       // Use Discord bot if configured, fall back to webhook
