@@ -98,14 +98,13 @@ export interface BotSignalAlert {
 }
 
 // Channel ID env var per category
-const CHANNEL_ENV: Record<SignalCategory | "free" | "copier" | "brief", string> = {
+const CHANNEL_ENV: Record<SignalCategory | "free" | "brief", string> = {
   free: "DISCORD_FREE_CHANNEL_ID",
   currency: "DISCORD_CURRENCY_CHANNEL_ID",
   metals: "DISCORD_METALS_CHANNEL_ID",
   crypto: "DISCORD_CRYPTO_CHANNEL_ID",
   stocks: "DISCORD_STOCKS_CHANNEL_ID",
   other: "DISCORD_PAID_CHANNEL_ID",
-  copier: "DISCORD_COPIER_CHANNEL_ID",
   brief: "DISCORD_BRIEF_CHANNEL_ID",
 };
 
@@ -178,12 +177,6 @@ export async function postSignalViaBot(signal: BotSignalAlert): Promise<void> {
     if (ch) await sendToChannel(ch, title, [buildFullEmbed(signal, category)]);
   }
 
-  // Post to copier channel (all signals go there — copier members get everything)
-  const copierChannelId = process.env[CHANNEL_ENV.copier];
-  if (copierChannelId) {
-    const ch = await getChannel(copierChannelId);
-    if (ch) await sendToChannel(ch, title, [buildFullEmbed(signal, category)]);
-  }
 }
 
 export async function postMorningBriefViaBot(
@@ -298,7 +291,6 @@ export function getBotStatus(): { configured: boolean; channels: Record<string, 
       crypto: !!process.env.DISCORD_CRYPTO_CHANNEL_ID,
       stocks: !!process.env.DISCORD_STOCKS_CHANNEL_ID,
       brief: !!process.env.DISCORD_BRIEF_CHANNEL_ID,
-      copier: !!process.env.DISCORD_COPIER_CHANNEL_ID,
     },
   };
 }

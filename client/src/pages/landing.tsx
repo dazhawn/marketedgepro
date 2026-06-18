@@ -1,5 +1,4 @@
 import { TrendingUp, Shield, Zap, Check, ChevronRight, Activity } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
 
 const DISCORD_INVITE = "https://discord.gg/h7qvbPjAV";
 
@@ -83,25 +82,9 @@ const tiers = [
     cta: "Best Deal →",
     ctaStyle: "bg-emerald-600 hover:bg-emerald-500 text-white font-bold",
   },
-  {
-    name: "Signal Copier",
-    price: "$50",
-    period: "/month",
-    description: "Signals auto-copied directly to your MT4/MT5 account via SignalStart / MyFXBook. Hands-free trading.",
-    color: "border-amber-500/50",
-    features: [
-      "All Signals tier included",
-      "Auto-copy to MetaTrader 4 or 5",
-      "Lot size & risk management settings",
-      "Priority support",
-    ],
-    cta: "Subscribe on Copier",
-    ctaStyle: "bg-amber-600 hover:bg-amber-500 text-white font-semibold",
-    isCopier: true as const,
-  },
 ];
 
-function TierCard({ tier, copierUrl }: { tier: typeof tiers[0]; copierUrl?: string | null }) {
+function TierCard({ tier }: { tier: typeof tiers[0] }) {
   return (
     <div className={`relative flex flex-col bg-zinc-900 border-2 ${tier.color} rounded-2xl p-6 transition-transform hover:-translate-y-1`}>
       {tier.badge && (
@@ -127,22 +110,7 @@ function TierCard({ tier, copierUrl }: { tier: typeof tiers[0]; copierUrl?: stri
           </li>
         ))}
       </ul>
-      {("isCopier" in tier && tier.isCopier) ? (
-        copierUrl ? (
-          <a
-            href={copierUrl}
-            target="_blank"
-            rel="noreferrer"
-            className={`w-full py-2.5 rounded-lg text-sm text-center block transition-colors ${tier.ctaStyle}`}
-          >
-            {tier.cta}
-          </a>
-        ) : (
-          <button disabled className="w-full py-2.5 rounded-lg text-sm font-semibold bg-zinc-700 text-zinc-500 cursor-not-allowed">
-            Coming Soon
-          </button>
-        )
-      ) : (
+      {(
         <a
           href={DISCORD_INVITE}
           target="_blank"
@@ -157,10 +125,6 @@ function TierCard({ tier, copierUrl }: { tier: typeof tiers[0]; copierUrl?: stri
 }
 
 export default function LandingPage() {
-  const { data: notifs } = useQuery<{ signalCopierUrl?: string | null }>({
-    queryKey: ["/api/settings/notifications-public"],
-  });
-  const copierUrl = notifs?.signalCopierUrl ?? null;
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       {/* Nav */}
@@ -235,7 +199,7 @@ export default function LandingPage() {
           <p className="text-zinc-400">Subscribe to your market. Cancel any time through Discord.</p>
         </div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {tiers.map(tier => <TierCard key={tier.name} tier={tier} copierUrl={copierUrl} />)}
+          {tiers.map(tier => <TierCard key={tier.name} tier={tier} />)}
         </div>
         <p className="text-center text-zinc-600 text-sm mt-8">
           Payments handled securely by Discord Monetize. No external sign-up required.

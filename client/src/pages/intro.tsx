@@ -350,7 +350,7 @@ export default function IntroPage() {
               { n: "1", t: "Pattern fires on TradingView", b: "Our proprietary indicator detects a confluence setup across 4 timeframes." },
               { n: "2", t: "AI validates the signal",     b: "DeepSeek V4 Pro cross-checks news sentiment, market data, and technical context. Signals scoring below threshold are filtered out." },
               { n: "3", t: "Posted to your Discord",      b: "Symbol auto-routes to the right channel — forex, metals, stocks/indices, or crypto. Free tier sees teasers; paid tiers see full SL/TP." },
-              { n: "4", t: "Auto-executed on your broker", b: "Signal Copier subscribers get the trade copied into their MT4/MT5 account via SignalStart or MyFXBook. Zero clicks." },
+              { n: "4", t: "Trade with confidence",        b: "Live analysis, daily AI brief, and post-trade reviews inside Discord help you understand the why behind every setup, not just blindly execute." },
             ].map(({ n, t, b }) => (
               <div key={n} className="flex gap-4">
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center font-bold shrink-0">{n}</div>
@@ -390,7 +390,7 @@ export default function IntroPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-3xl mx-auto">
             {[
               {
                 name: "Single Category",
@@ -401,14 +401,8 @@ export default function IntroPage() {
               {
                 name: "All Signals",
                 price: "$15", strike: "$30",
-                emphasis: false,
-                features: ["Forex + Metals + Stocks/Indices + Crypto", "Full entry, SL & TPs", "Daily AI pre-market brief", "Live trade analysis & breakdowns", "All Discord channels"],
-              },
-              {
-                name: "Signal Copier",
-                price: "$25", strike: "$50",
                 emphasis: true,
-                features: ["Everything in All Signals", "Auto-copy MT4/MT5 via SignalStart/MyFXBook", "Live trade analysis & breakdowns", "Risk management settings", "Priority support"],
+                features: ["Forex + Metals + Stocks/Indices + Crypto", "Full entry, SL & TPs", "Daily AI pre-market brief", "Live trade analysis & breakdowns", "All Discord channels"],
               },
             ].map(t => (
               <div
@@ -578,7 +572,7 @@ export default function IntroPage() {
             <p className="text-xs text-zinc-400">
               <strong className="text-zinc-200">Not sure which?</strong> Pick the <span className="text-blue-400 font-semibold">Indicator</span> if you trade manually
               and want chart visuals + alerts. Pick the <span className="text-purple-400 font-semibold">Strategy</span> if you want backtests + automation.
-              Or just grab the <span className="text-amber-400 font-semibold">Signal Copier</span> above and skip the setup entirely.
+              Or just <span className="text-emerald-400 font-semibold">subscribe to Signals</span> in Discord and let us do the heavy lifting.
             </p>
           </div>
         </div>
@@ -638,9 +632,7 @@ export default function IntroPage() {
           <div>
             {[
               { q: "When does it launch?",
-                a: "Soft launch is rolling — waitlist members get first access. Public launch shortly after. We'll text/email you the exact date." },
-              { q: "What brokers does the copier support?",
-                a: "Any MT4 or MT5 broker connected through SignalStart or MyFXBook. You control lot size, max risk, and which signals to copy from your dashboard there." },
+                a: "Soft launch is rolling — waitlist members get first access. Public launch on August 1, 2026. We'll text/email you the exact date." },
               { q: "Do I need a TradingView subscription?",
                 a: "No. You receive the signals in Discord. TradingView is only required if you also want to run the indicator on your own charts." },
               { q: "How are signals different from other services?",

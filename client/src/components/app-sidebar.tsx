@@ -108,16 +108,6 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* Signal Copier upsell */}
-        <div className="mx-3 mt-4 p-3 rounded-lg border border-amber-500/20 bg-amber-500/5">
-          <div className="flex items-center gap-2 mb-1">
-            <Zap className="w-3.5 h-3.5 text-amber-400" />
-            <span className="text-xs font-semibold text-amber-400">Signal Copier</span>
-          </div>
-          <p className="text-[11px] text-zinc-500 leading-relaxed">
-            Auto-copy signals to MT4/MT5. Coming soon — $50/month.
-          </p>
-        </div>
       </SidebarContent>
 
       <SidebarFooter className="px-4 py-4 border-t border-sidebar-border space-y-3">

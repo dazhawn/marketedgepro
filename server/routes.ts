@@ -10,7 +10,6 @@ import { analyzeMarket, getAiProviderStatus, type SignalContext } from "./servic
 import { sendDiscordAlert, sendSignalToDiscord, sendMorningBrief } from "./services/discord";
 import { postSignalViaBot, postMorningBriefViaBot, getBotStatus } from "./services/discord-bot";
 import { sendPhoneNotification } from "./services/notifications";
-import { forwardToSignalCopier } from "./services/signal-copier";
 import { buildSymbolBrief } from "./services/scheduler";
 import { buildMarketPulse } from "./services/market-pulse";
 import { fetchEconomicCalendar, getTodayEvents, getTomorrowEvents, filterByHighImpact, filterByWatchlistCurrencies } from "./services/economic-calendar";
@@ -342,7 +341,6 @@ export async function registerRoutes(
             };
             postSignalViaBot(outSignal).catch(err => console.error("Discord bot signal failed:", err));
             sendPhoneNotification(outSignal).catch(err => console.error("Phone notify failed:", err));
-            forwardToSignalCopier(outSignal).catch(err => console.error("Signal copier failed:", err));
           } catch (err) {
             console.error("Auto-analyze failed for signal:", err);
             const rawSignal = {
@@ -363,7 +361,6 @@ export async function registerRoutes(
             };
             postSignalViaBot(rawSignal).catch(e => console.error("Discord bot signal failed:", e));
             sendPhoneNotification(rawSignal).catch(e => console.error("Phone notify failed:", e));
-            forwardToSignalCopier(rawSignal).catch(e => console.error("Signal copier failed:", e));
           }
         } else {
         const rawSignal = {
@@ -384,7 +381,6 @@ export async function registerRoutes(
         };
         postSignalViaBot(rawSignal).catch(err => console.error("Discord bot signal failed:", err));
         sendPhoneNotification(rawSignal).catch(err => console.error("Phone notify failed:", err));
-        forwardToSignalCopier(rawSignal).catch(err => console.error("Signal copier failed:", err));
         }
 
         console.log(`Signal ${signal.id} processed`);
@@ -651,7 +647,6 @@ export async function registerRoutes(
   // Public endpoint used by landing page — just the marketing-safe bits
   app.get("/api/settings/notifications-public", (_req, res) => {
     res.json({
-      signalCopierUrl: process.env.SIGNAL_COPIER_SIGNUP_URL ?? null,
       discordInvite: process.env.DISCORD_INVITE_URL ?? null,
     });
   });
@@ -664,8 +659,6 @@ export async function registerRoutes(
       pushover: !!(process.env.PUSHOVER_TOKEN && process.env.PUSHOVER_USER_KEY),
       telegram: !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID),
       ntfy: !!process.env.NTFY_TOPIC,
-      signalCopier: !!process.env.SIGNAL_COPIER_ENABLED,
-      signalCopierUrl: process.env.SIGNAL_COPIER_SIGNUP_URL ?? null,
       aiProvider: ai.provider,
       aiModel: ai.model,
       aiConfigured: ai.configured,

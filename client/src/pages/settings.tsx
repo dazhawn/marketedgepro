@@ -41,8 +41,6 @@ export default function SettingsPage() {
     pushover: boolean;
     telegram: boolean;
     ntfy: boolean;
-    signalCopier: boolean;
-    signalCopierUrl?: string;
     aiProvider: string;
     aiModel: string;
     aiConfigured: boolean;
@@ -291,45 +289,9 @@ export default function SettingsPage() {
                 <StatusRow label="#crypto-signals" active={notifs.discordChannels?.crypto} description="DISCORD_CRYPTO_CHANNEL_ID — $10/month tier" />
                 <StatusRow label="#stocks-alerts" active={notifs.discordChannels?.stocks} description="DISCORD_STOCKS_CHANNEL_ID — stocks + indices ($20/month tier)" />
                 <StatusRow label="#morning-brief" active={notifs.discordChannels?.brief} description="DISCORD_BRIEF_CHANNEL_ID — daily AI analysis" />
-                <StatusRow label="#copier-alerts" active={notifs.discordChannels?.copier} description="DISCORD_COPIER_CHANNEL_ID — $50/month tier" />
               </div>
             ) : (
               <div className="p-4 text-zinc-600 text-sm">Loading…</div>
-            )}
-          </div>
-        </section>
-
-        {/* Signal Copier */}
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <Zap className="w-4 h-4 text-amber-400" />
-            <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Signal Copier — $50/month</h2>
-          </div>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-            {notifs?.signalCopierUrl ? (
-              <>
-                <p className="text-xs text-zinc-500 mb-2">Subscribers copy your signals into their MT4/MT5 accounts via SignalStart / MyFXBook. Share this link:</p>
-                <a
-                  href={notifs.signalCopierUrl}
-                  target="_blank"
-                  rel="noopener"
-                  className="block text-sm text-amber-400 hover:text-amber-300 underline break-all bg-zinc-800 px-3 py-2 rounded"
-                >
-                  {notifs.signalCopierUrl}
-                </a>
-              </>
-            ) : (
-              <>
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                  <p className="text-sm text-amber-400 font-medium">Signup link not yet configured</p>
-                </div>
-                <p className="text-xs text-zinc-500 mt-2">
-                  Set <code className="text-amber-400">SIGNAL_COPIER_SIGNUP_URL</code> in Railway env vars
-                  to your SignalStart or MyFXBook subscription page. Subscribers copy your signals into
-                  their broker account from there.
-                </p>
-              </>
             )}
           </div>
         </section>
