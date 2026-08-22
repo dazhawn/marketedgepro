@@ -15,15 +15,19 @@ async function generateNarrative(prompt: string): Promise<string> {
     const data = await res.json() as { choices: { message: { content: string } }[] };
     return data.choices?.[0]?.message?.content ?? "";
   }
-  // Anthropic fallback (rare on this deployment)
+  // Anthropic — the default provider for this deployment.
   const Anthropic = (await import("@anthropic-ai/sdk")).default;
   const ai = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const message = await ai.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 200,
+    model: process.env.ANTHROPIC_MODEL ?? "claude-opus-5",
+    // Adaptive thinking is on by default and bills against this ceiling, so the
+    // old 200-token cap would be consumed before any narrative was written.
+    max_tokens: 2048,
+    output_config: { effort: "low" },
     messages: [{ role: "user", content: prompt }],
   });
-  return message.content[0].type === "text" ? message.content[0].text : "";
+  const textBlock = message.content.find(b => b.type === "text");
+  return textBlock && textBlock.type === "text" ? textBlock.text : "";
 }
 
 export interface PulseItem {

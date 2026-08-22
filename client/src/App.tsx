@@ -9,11 +9,13 @@ import NotFound from "@/pages/not-found";
 import { AppSidebar } from "@/components/app-sidebar";
 import SignalsPage from "@/pages/signals";
 import HistoryPage from "@/pages/history";
-import SettingsPage from "@/pages/settings";
+import ConfigurationPage from "@/pages/configuration";
 import LoginPage from "@/pages/login";
 import LandingPage from "@/pages/landing";
-import IntroPage from "@/pages/intro";
 import WaitlistPage from "@/pages/waitlist";
+import ScreenerPage from "@/pages/screener";
+import SettingsPage from "@/pages/settings";
+import SmartInvestorPage from "@/pages/smart-investor";
 
 // Admin shell — sidebar layout, password protected routes
 function AdminShell() {
@@ -29,8 +31,11 @@ function AdminShell() {
           <Switch>
             <Route path="/admin" component={SignalsPage} />
             <Route path="/admin/history" component={HistoryPage} />
-            <Route path="/admin/settings" component={SettingsPage} />
+            <Route path="/admin/settings" component={ConfigurationPage} />
             <Route path="/admin/waitlist" component={WaitlistPage} />
+            <Route path="/admin/screener" component={ScreenerPage} />
+            <Route path="/admin/settings-library" component={SettingsPage} />
+            <Route path="/admin/smart-investor" component={SmartInvestorPage} />
             <Route path="/login" component={LoginPage} />
             <Route component={NotFound} />
           </Switch>
@@ -46,7 +51,8 @@ function Router() {
   return isAdmin ? <AdminShell /> : (
     <Switch>
       <Route path="/" component={LandingPage} />
-      <Route path="/intro" component={IntroPage} />
+      {/* Landing and sales pages are now merged; /intro kept as an alias. */}
+      <Route path="/intro" component={LandingPage} />
       <Route component={NotFound} />
     </Switch>
   );

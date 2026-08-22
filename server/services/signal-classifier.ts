@@ -68,6 +68,11 @@ export function classifySymbol(raw: string): SignalCategory {
     if (FOREX_CURRENCIES.has(base) && FOREX_CURRENCIES.has(quote)) return "currency";
   }
 
+  // Anything that looks like a plain equity ticker (1-5 letters, not caught by
+  // the metals/crypto/forex checks above) is a stock — the explicit whitelist
+  // can't enumerate every listed company (KO, PEP, WMT, ...).
+  if (/^[A-Z]{1,5}$/.test(s)) return "stocks";
+
   return "other";
 }
 

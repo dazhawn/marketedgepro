@@ -1,301 +1,358 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { CheckCircle2, XCircle, Copy, Bell, MessageCircle, Smartphone, Radio, Zap, Brain, Sun, Loader2 } from "lucide-react";
-import { useState } from "react";
-import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { AlertTriangle, BadgeCheck, Check, Copy, Loader2, Lock, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-function StatusRow({ label, active, description }: { label: string; active: boolean; description: string }) {
+/**
+ * Settings — tuned configurations for the Renko + MTF Confluence strategy.
+ * (Distinct from pages/configuration.tsx, which is the app's own config page.)
+ *
+ * Read-only. The catalogue is published offline and served by
+ * GET /api/settings/configs.json; this page never computes anything.
+ *
+ * Two things here are load-bearing and must survive any redesign:
+ *  1. Every entry shows whether it has been reproduced on TradingView, and
+ *     renders validation.warning when it has not. People make money decisions
+ *     on this page.
+ *  2. Win rate and profit factor are per ROUND TRIP, not per fill. TradingView
+ *     books each partial take-profit as its own closed trade, which flatters
+ *     win rate; `fills` is shown alongside purely for reconciling against a
+ *     Strategy Tester screenshot.
+ */
+
+type Tier = "free" | "indicator" | "strategy";
+
+interface Validation {
+  match_rate: number | null;
+  checked_utc: string | null;
+  warning: string | null;
+}
+
+interface FullConfig {
+  id: string;
+  symbol: string;
+  timeframe: string;
+  mtf: string[];
+  title: string;
+  note: string;
+  tier: Tier;
+  validated_against_tradingview: boolean;
+  validation: Validation;
+  data: { bars: number; start: string; end: string; source: string };
+  costs: {
+    initial_capital: number;
+    commission_pct_per_side: number;
+    slippage_ticks: number;
+    slippage_bps: number;
+    mintick: number;
+  };
+  backtest: {
+    round_trips: number;
+    fills: number;
+    win_rate: number;
+    profit_factor: number;
+    return_pct: number;
+    max_drawdown_pct: number;
+    avg_win_loss: number;
+    longest_losing_run: number;
+    sharpe: number;
+    avg_bars_held: number;
+  };
+  settings: { engine: Record<string, unknown>; strategy: Record<string, unknown> };
+  checklist: string;
+  locked?: false;
+}
+
+interface LockedConfig {
+  id: string;
+  symbol: string;
+  timeframe: string;
+  title: string;
+  tier: Tier;
+  validated_against_tradingview: boolean;
+  locked: true;
+}
+
+type Config = FullConfig | LockedConfig;
+
+interface Catalogue {
+  schema_version: number;
+  generated_utc: string;
+  strategy: string;
+  disclaimer: string;
+  counts: { total: number; validated: number };
+  configs: Config[];
+  failed: unknown[];
+  viewer_tier: Tier;
+}
+
+const isLocked = (c: Config): c is LockedConfig => c.locked === true;
+
+const TIER_LABEL: Record<Tier, string> = {
+  free: "Free",
+  indicator: "Indicator",
+  strategy: "Strategy",
+};
+
+/** Verification state. Amber until the config is reproduced on TradingView. */
+function VerifiedChip({ verified }: { verified: boolean }) {
+  return verified ? (
+    <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+      <BadgeCheck className="w-3 h-3" /> Verified
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/15 text-amber-700 dark:text-amber-400">
+      <AlertTriangle className="w-3 h-3" /> Unverified
+    </span>
+  );
+}
+
+function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
-    <div className="flex items-center gap-3 py-3 border-b border-zinc-800 last:border-0">
-      {active
-        ? <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-        : <XCircle className="w-4 h-4 text-zinc-600 shrink-0" />}
-      <div className="flex-1 min-w-0">
-        <p className={`text-sm font-medium ${active ? "text-white" : "text-zinc-500"}`}>{label}</p>
-        <p className="text-xs text-zinc-600">{description}</p>
-      </div>
-      <span className={`text-xs px-2 py-0.5 rounded border ${
-        active ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-zinc-800 text-zinc-600 border-zinc-700"
-      }`}>
-        {active ? "Active" : "Not configured"}
-      </span>
+    <div className="bg-card px-3.5 py-3">
+      <div className="text-[9.5px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">{label}</div>
+      <div className="mt-0.5 text-xl font-semibold tracking-tight tabular-nums">{value}</div>
+      {note && <div className="font-mono text-[11px] text-muted-foreground">{note}</div>}
     </div>
   );
 }
 
-function EnvRow({ varName, description }: { varName: string; description: string }) {
+function Provenance({ cfg }: { cfg: FullConfig }) {
+  const { data, costs } = cfg;
+  const slippage = costs.slippage_bps > 0 ? `${costs.slippage_bps} bp` : `${costs.slippage_ticks} ticks`;
+  const rows: Array<[string, string]> = [
+    ["Data", `${data.bars.toLocaleString()} bars · ${data.start} → ${data.end} · ${data.source}`],
+    [
+      "Costs",
+      `${costs.commission_pct_per_side}% per side · ${slippage} slippage · $${costs.initial_capital.toLocaleString()} capital`,
+    ],
+    ["Engine", `Renko ${String(cfg.settings.engine.mode)} ${String(cfg.settings.engine.modevalue)} · source ${String(cfg.settings.engine.src_input)}`],
+    ["MTF legs", cfg.mtf.join("  ·  ")],
+  ];
   return (
-    <div className="py-2 border-b border-zinc-800/50 last:border-0">
-      <code className="text-xs text-amber-400 font-mono">{varName}</code>
-      <p className="text-xs text-zinc-500 mt-0.5">{description}</p>
-    </div>
+    <dl className="mt-6 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 border-t border-border pt-4">
+      {rows.map(([dt, dd]) => (
+        <div key={dt} className="contents">
+          <dt className="pt-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">{dt}</dt>
+          <dd className="m-0 font-mono text-[12.5px] tabular-nums text-muted-foreground">{dd}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function ChecklistBlock({ checklist }: { checklist: string }) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1800);
+    return () => clearTimeout(t);
+  }, [copied]);
+
+  async function copy() {
+    try {
+      // Copied verbatim — the whitespace lines the values up with the Pine
+      // settings dialog, so it must not be trimmed or reflowed.
+      await navigator.clipboard.writeText(checklist);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="mt-7 mb-2 flex items-center justify-between gap-3">
+        <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          Settings checklist
+        </h2>
+        <Button size="sm" variant="outline" onClick={copy} className="h-7 gap-1.5 text-xs">
+          {copied ? <><Check className="w-3.5 h-3.5" />Copied</> : <><Copy className="w-3.5 h-3.5" />Copy</>}
+        </Button>
+      </div>
+      <pre className="m-0 overflow-x-auto rounded-lg border border-border bg-muted/40 px-4 py-4 font-mono text-[12.5px] leading-[1.62] text-foreground">
+        {checklist}
+      </pre>
+    </>
+  );
+}
+
+function DetailPane({ cfg }: { cfg: Config }) {
+  if (isLocked(cfg)) {
+    return (
+      <section className="rounded-xl border border-border bg-card p-7 shadow-sm">
+        <div className="flex flex-wrap items-center gap-3">
+          <h3 className="m-0 text-2xl font-bold tracking-tight">{cfg.title}</h3>
+          <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-muted text-muted-foreground">
+            <Lock className="w-3 h-3" /> {TIER_LABEL[cfg.tier]} tier
+          </span>
+          <VerifiedChip verified={cfg.validated_against_tradingview} />
+        </div>
+        <p className="mt-3 max-w-[58ch] text-sm text-muted-foreground">
+          This configuration is part of the {TIER_LABEL[cfg.tier]} tier. Its metrics and settings are not
+          included in your current access.
+        </p>
+      </section>
+    );
+  }
+
+  const m = cfg.backtest;
+  const verified = cfg.validated_against_tradingview;
+
+  return (
+    <section className="rounded-xl border border-border bg-card p-7 shadow-sm">
+      <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2.5">
+        <h3 className="m-0 text-2xl font-bold tracking-tight">{cfg.title}</h3>
+        <VerifiedChip verified={verified} />
+        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {TIER_LABEL[cfg.tier]}
+        </span>
+        <span className="font-mono text-xs text-muted-foreground">
+          {cfg.symbol} · {cfg.timeframe} · MTF {cfg.mtf.join(" / ")}
+        </span>
+      </div>
+
+      <p className="mt-3 max-w-[68ch] text-[14.5px] leading-relaxed text-muted-foreground">{cfg.note}</p>
+
+      {/* Hard requirement: the warning renders whenever the flag is false. */}
+      {verified ? (
+        <div className="mt-5 flex items-start gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-[13.5px] leading-relaxed">
+          <BadgeCheck className="mt-0.5 h-4 w-4 flex-none text-emerald-600 dark:text-emerald-400" />
+          <span>
+            Reproduced against TradingView's Strategy Tester
+            {cfg.validation.match_rate !== null && <> at {cfg.validation.match_rate}% entry match</>}
+            {cfg.validation.checked_utc && <> on {cfg.validation.checked_utc.slice(0, 10)}</>}.
+          </span>
+        </div>
+      ) : (
+        <div className="mt-5 flex items-start gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[13.5px] leading-relaxed">
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-none text-amber-600 dark:text-amber-400" />
+          <span>{cfg.validation.warning}</span>
+        </div>
+      )}
+
+      <div className="mt-5 grid grid-cols-[repeat(auto-fit,minmax(112px,1fr))] gap-px overflow-hidden rounded-lg border border-border bg-border">
+        <Stat label="Round trips" value={String(m.round_trips)} note={`${m.fills} fills`} />
+        <Stat label="Win rate" value={`${m.win_rate}%`} note="per round trip" />
+        <Stat label="Profit factor" value={m.profit_factor.toFixed(2)} note="per round trip" />
+        <Stat label="Return" value={`${m.return_pct}%`} />
+        <Stat label="Max DD" value={`${m.max_drawdown_pct}%`} note="closed-trade" />
+        <Stat label="Avg win/loss" value={m.avg_win_loss.toFixed(2)} />
+        <Stat label="Sharpe" value={m.sharpe.toFixed(2)} />
+        <Stat label="Worst run" value={`${m.longest_losing_run} losses`} note={`${m.avg_bars_held} bars held`} />
+      </div>
+
+      <p className="mt-2 text-[11.5px] leading-relaxed text-muted-foreground">
+        Win rate and profit factor are measured per round trip. TradingView counts each partial take-profit as
+        its own closed trade, so its figures will differ — compare against <span className="font-mono">{m.fills}</span>{" "}
+        fills instead. Max drawdown is closed-trade equity and reads lower than TradingView's intrabar figure.
+      </p>
+
+      <ChecklistBlock checklist={cfg.checklist} />
+      <Provenance cfg={cfg} />
+    </section>
   );
 }
 
 export default function SettingsPage() {
-  const { toast } = useToast();
-  const [copied, setCopied] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const { data: notifs } = useQuery<{
-    pushover: boolean;
-    telegram: boolean;
-    ntfy: boolean;
-    aiProvider: string;
-    aiModel: string;
-    aiConfigured: boolean;
-    discordBot: boolean;
-    discordChannels: Record<string, boolean>;
-  }>({ queryKey: ["/api/settings/notifications"] });
-
-  const { data: webhookInfo } = useQuery<{ secret: string }>({
-    queryKey: ["/api/signals/webhook-info"],
+  const { data, isLoading, error } = useQuery<Catalogue>({
+    queryKey: ["/api/settings/configs.json"],
   });
 
-  const morningBriefMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/morning-brief/trigger", {});
-      return res.json();
-    },
-    onSuccess: (data: any) => {
-      if (data.sent) {
-        toast({ title: "Morning brief sent", description: `${data.symbolCount} symbols · ${data.calendarEventCount} calendar events dispatched to Discord.` });
-      } else {
-        toast({ title: "Not sent", description: data.message ?? "Nothing to send.", variant: "destructive" });
-      }
-    },
-    onError: () => toast({ title: "Failed", description: "Could not send morning brief.", variant: "destructive" }),
-  });
-
-  const testAlertMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/signals/test-alert", { symbol: "XAUUSD", action: "BUY" });
-      return res.json();
-    },
-    onSuccess: () => toast({ title: "Test alert sent", description: "XAUUSD BUY signal dispatched to Discord — check #metals-signals and #free-preview." }),
-    onError: () => toast({ title: "Failed", description: "Could not send test alert.", variant: "destructive" }),
-  });
-
-  const webhookUrl = `${window.location.origin}/api/signals/webhook`;
-  const [copiedTemplate, setCopiedTemplate] = useState(false);
-
-  const messageTemplate = `{
-  "symbol": "{{ticker}}",
-  "action": "BUY",
-  "price": {{close}},
-  "entry": {{plot("ENTRY")}},
-  "sl": {{plot("SL")}},
-  "tp1": {{plot("TP1")}},
-  "tp2": {{plot("TP2")}},
-  "tp3": {{plot("TP3")}},
-  "timeframe": "{{interval}}"
-}`;
-
-  function copyWebhook() {
-    navigator.clipboard.writeText(`${webhookUrl}?secret=${webhookInfo?.secret ?? ""}`);
-    setCopied(true);
-    toast({ title: "Copied", description: "Webhook URL copied to clipboard." });
-    setTimeout(() => setCopied(false), 2000);
-  }
-
-  function copyTemplate() {
-    navigator.clipboard.writeText(messageTemplate);
-    setCopiedTemplate(true);
-    toast({ title: "Copied", description: "Message template copied to clipboard." });
-    setTimeout(() => setCopiedTemplate(false), 2000);
-  }
-
-  const providerLabel = notifs?.aiProvider === "atlascloud" ? "Atlas Cloud" : "Anthropic";
-  const providerColor = notifs?.aiProvider === "atlascloud" ? "text-blue-400" : "text-purple-400";
+  const configs = data?.configs ?? [];
+  const selected = configs.find(c => c.id === selectedId) ?? configs.find(c => !isLocked(c)) ?? configs[0];
 
   return (
-    <div className="flex flex-col h-full bg-zinc-950 text-white overflow-y-auto">
-      <div className="border-b border-zinc-800 px-6 py-4">
-        <h1 className="text-xl font-bold">Settings</h1>
-        <p className="text-zinc-500 text-sm mt-0.5">Configure your notification channels and TradingView webhook.</p>
-      </div>
+    <div className="h-full overflow-y-auto bg-background text-foreground">
+      <div className="mx-auto max-w-[1160px] px-6 pb-20 pt-8">
+        <header className="mb-6 flex flex-wrap items-baseline gap-x-4 gap-y-3 border-b border-border pb-4">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">MarketEdgePro</span>
+          {data && (
+            <span className="whitespace-nowrap rounded-md border border-border bg-muted/50 px-2.5 py-1 font-mono text-xs text-muted-foreground">
+              {data.counts.validated} of {data.counts.total} reproduced
+            </span>
+          )}
+          <h1 className="m-0 flex-[1_1_100%] text-[clamp(25px,3.4vw,34px)] font-bold tracking-tight text-balance">
+            <SlidersHorizontal className="mr-2 inline h-6 w-6 text-primary" />
+            Strategy Settings for TradingView
+          </h1>
+          <p className="m-0 max-w-[62ch] flex-[1_1_100%] text-sm text-muted-foreground">
+            Tuned configurations for the {data?.strategy ?? "Renko + MTF Confluence Strategy"}, one per symbol and
+            timeframe. Load a configuration on your chart to reproduce the backtest behind it.
+          </p>
+        </header>
 
-      <div className="px-6 py-6 space-y-8 max-w-2xl">
-
-        {/* Webhook URL */}
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <Radio className="w-4 h-4 text-blue-400" />
-            <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">TradingView Webhook</h2>
+        {isLoading && (
+          <div className="flex items-center gap-2 py-10 text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading catalogue…
           </div>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-            <p className="text-xs text-zinc-500 mb-2">Paste this URL into your TradingView alert → Webhook URL field.</p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 text-xs font-mono text-zinc-300 bg-zinc-800 px-3 py-2 rounded truncate">
-                {webhookUrl}{webhookInfo?.secret ? `?secret=${webhookInfo.secret}` : ""}
-              </code>
-              <button
-                onClick={copyWebhook}
-                className="shrink-0 flex items-center gap-1.5 text-xs px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded transition-colors border border-zinc-700"
-              >
-                <Copy className="w-3.5 h-3.5" />
-                {copied ? "Copied!" : "Copy"}
-              </button>
+        )}
+
+        {error && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm">
+            Could not load the settings catalogue. Confirm{" "}
+            <span className="font-mono">server/data/settings-configs.json</span> is present.
+          </div>
+        )}
+
+        {data && (
+          <>
+            <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-[288px_minmax(0,1fr)]">
+              <nav aria-label="Symbols" className="flex flex-col gap-2 md:sticky md:top-5">
+                <h2 className="mb-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  Symbols
+                </h2>
+                {configs.map(cfg => {
+                  const locked = isLocked(cfg);
+                  const active = selected?.id === cfg.id;
+                  return (
+                    <button
+                      key={cfg.id}
+                      onClick={() => setSelectedId(cfg.id)}
+                      aria-current={active}
+                      className={[
+                        "grid w-full grid-cols-[1fr_auto] gap-x-2.5 gap-y-0.5 rounded-lg border px-3.5 py-3 text-left transition-colors",
+                        "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+                        active
+                          ? "border-primary bg-primary/10"
+                          : "border-border bg-card hover:border-muted-foreground/40",
+                        locked ? "opacity-70" : "",
+                      ].join(" ")}
+                    >
+                      <span className="text-[15px] font-semibold tracking-tight">{cfg.title}</span>
+                      {locked ? (
+                        <span className="inline-flex items-center gap-1 self-start rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          <Lock className="h-3 w-3" /> {TIER_LABEL[cfg.tier]}
+                        </span>
+                      ) : (
+                        <span className="self-start">
+                          <VerifiedChip verified={cfg.validated_against_tradingview} />
+                        </span>
+                      )}
+                      <span className="col-start-1 font-mono text-[11.5px] tabular-nums text-muted-foreground">
+                        {locked
+                          ? `${cfg.symbol} · ${cfg.timeframe}`
+                          : `${(cfg as FullConfig).backtest.round_trips} trades · PF ${(cfg as FullConfig).backtest.profit_factor.toFixed(2)} · DD ${(cfg as FullConfig).backtest.max_drawdown_pct}%`}
+                      </span>
+                    </button>
+                  );
+                })}
+              </nav>
+
+              {selected && <DetailPane cfg={selected} />}
             </div>
-            <p className="text-xs text-zinc-600 mt-2">Set <code className="text-amber-400">SESSION_SECRET</code> in your env to keep this URL private.</p>
-          </div>
-        </section>
 
-        {/* Message Template */}
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <MessageCircle className="w-4 h-4 text-blue-400" />
-            <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Alert Message Template</h2>
-          </div>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-            <p className="text-xs text-zinc-500 mb-2">Paste this into the <strong className="text-zinc-300">Message</strong> field of your TradingView alert. Change <code className="text-amber-400">"BUY"</code> to <code className="text-amber-400">"SELL"</code> as needed.</p>
-            <div className="relative">
-              <pre className="text-xs font-mono text-zinc-300 bg-zinc-800 px-3 py-3 rounded whitespace-pre overflow-x-auto">
-{`{
-  "symbol": "{{ticker}}",
-  "action": "BUY",
-  "price": {{close}},
-  "entry": {{plot("ENTRY")}},
-  "sl": {{plot("SL")}},
-  "tp1": {{plot("TP1")}},
-  "tp2": {{plot("TP2")}},
-  "tp3": {{plot("TP3")}},
-  "timeframe": "{{interval}}"
-}`}
-              </pre>
-              <button
-                onClick={copyTemplate}
-                className="absolute top-2 right-2 flex items-center gap-1.5 text-xs px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded transition-colors border border-zinc-600"
-              >
-                <Copy className="w-3 h-3" />
-                {copiedTemplate ? "Copied!" : "Copy"}
-              </button>
-            </div>
-            <p className="text-xs text-zinc-600 mt-2">TradingView fills <code className="text-zinc-400">{"{{ticker}}"}</code>, <code className="text-zinc-400">{"{{close}}"}</code>, and <code className="text-zinc-400">{"{{interval}}"}</code> automatically when the alert fires.</p>
-            <div className="mt-3 pt-3 border-t border-zinc-800 flex items-center justify-between gap-3">
-              <p className="text-xs text-zinc-500">Send a fake XAUUSD BUY signal to verify Discord routing without setting up a TradingView alert.</p>
-              <Button
-                size="sm"
-                onClick={() => testAlertMutation.mutate()}
-                disabled={testAlertMutation.isPending}
-                className="shrink-0 bg-blue-500 hover:bg-blue-400 text-white font-semibold"
-              >
-                {testAlertMutation.isPending
-                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />Sending…</>
-                  : <><Zap className="w-3.5 h-3.5 mr-1.5" />Test Alert</>}
-              </Button>
-            </div>
-          </div>
-        </section>
-
-        {/* Morning Brief */}
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <Sun className="w-4 h-4 text-amber-400" />
-            <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Morning Brief</h2>
-          </div>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-sm text-zinc-300">Daily pre-market AI analysis for your watchlist</p>
-                <p className="text-xs text-zinc-500 mt-1">
-                  Auto-fires at <span className="text-zinc-300">8:00 AM EST</span> every day via the scheduler.
-                  Use the button to trigger it manually at any time.
-                </p>
-              </div>
-              <Button
-                size="sm"
-                onClick={() => morningBriefMutation.mutate()}
-                disabled={morningBriefMutation.isPending}
-                className="shrink-0 bg-amber-500 hover:bg-amber-400 text-black font-semibold"
-              >
-                {morningBriefMutation.isPending
-                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />Sending…</>
-                  : <><Sun className="w-3.5 h-3.5 mr-1.5" />Send Now</>}
-              </Button>
-            </div>
-          </div>
-        </section>
-
-        {/* AI Provider */}
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <Brain className="w-4 h-4 text-purple-400" />
-            <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">AI Provider</h2>
-          </div>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-            {notifs ? (
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-sm font-semibold ${providerColor}`}>{providerLabel}</span>
-                    {notifs.aiConfigured
-                      ? <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                      : <XCircle className="w-4 h-4 text-red-400" />}
-                  </div>
-                  <p className="text-xs text-zinc-500 mt-0.5 font-mono">{notifs.aiModel}</p>
-                </div>
-                <span className={`text-xs px-2 py-0.5 rounded border ${
-                  notifs.aiConfigured
-                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                    : "bg-red-500/10 text-red-400 border-red-500/20"
-                }`}>
-                  {notifs.aiConfigured ? "Configured" : "Missing API key"}
-                </span>
-              </div>
-            ) : (
-              <div className="text-zinc-600 text-sm">Loading…</div>
-            )}
-            <div className="mt-3 pt-3 border-t border-zinc-800 space-y-1.5 text-xs text-zinc-500">
-              <p>Set <code className="text-amber-400">AI_PROVIDER=atlascloud</code> + <code className="text-amber-400">ATLASCLOUD_API_KEY</code> to route analysis through Atlas Cloud.</p>
-              <p>Set <code className="text-amber-400">ATLAS_MODEL</code> to pick any Atlas Cloud LLM (default: <code className="text-zinc-300">deepseek-ai/deepseek-v4-pro</code>).</p>
-              <p>Leave <code className="text-amber-400">AI_PROVIDER</code> unset to use the Anthropic SDK directly.</p>
-            </div>
-          </div>
-        </section>
-
-        {/* Phone Notifications */}
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <Smartphone className="w-4 h-4 text-purple-400" />
-            <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Phone Notifications</h2>
-          </div>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg">
-            {notifs ? (
-              <div className="px-4">
-                <StatusRow label="Pushover" active={notifs.pushover} description="Instant push alerts. Set PUSHOVER_TOKEN + PUSHOVER_USER_KEY" />
-                <StatusRow label="Telegram Bot" active={notifs.telegram} description="Send signals to a Telegram chat. Set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID" />
-                <StatusRow label="ntfy.sh" active={notifs.ntfy} description="Free push notifications. Set NTFY_TOPIC (and optionally NTFY_URL)" />
-              </div>
-            ) : (
-              <div className="p-4 text-zinc-600 text-sm">Loading…</div>
-            )}
-          </div>
-        </section>
-
-        {/* Discord Bot */}
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <MessageCircle className="w-4 h-4 text-indigo-400" />
-            <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Discord Bot</h2>
-          </div>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg">
-            {notifs ? (
-              <div className="px-4">
-                <StatusRow label="Bot connected" active={notifs.discordBot} description="Set DISCORD_BOT_TOKEN — bot routes signals to the correct tier channels" />
-                <StatusRow label="#free-preview" active={notifs.discordChannels?.free} description="DISCORD_FREE_CHANNEL_ID — teaser alerts, anyone can see" />
-                <StatusRow label="#currency-signals" active={notifs.discordChannels?.currency} description="DISCORD_CURRENCY_CHANNEL_ID — $10/month tier" />
-                <StatusRow label="#metals-signals" active={notifs.discordChannels?.metals} description="DISCORD_METALS_CHANNEL_ID — $10/month tier" />
-                <StatusRow label="#crypto-signals" active={notifs.discordChannels?.crypto} description="DISCORD_CRYPTO_CHANNEL_ID — $10/month tier" />
-                <StatusRow label="#stocks-alerts" active={notifs.discordChannels?.stocks} description="DISCORD_STOCKS_CHANNEL_ID — stocks + indices ($20/month tier)" />
-                <StatusRow label="#morning-brief" active={notifs.discordChannels?.brief} description="DISCORD_BRIEF_CHANNEL_ID — daily AI analysis" />
-              </div>
-            ) : (
-              <div className="p-4 text-zinc-600 text-sm">Loading…</div>
-            )}
-          </div>
-        </section>
-
+            <footer className="mt-6 rounded-lg border border-border bg-muted/40 px-4 py-4 text-[12.5px] leading-relaxed text-muted-foreground">
+              {data.disclaimer}
+              <span className="mt-1.5 block font-mono text-[11.5px]">
+                Catalogue generated {data.generated_utc} · schema v{data.schema_version}
+              </span>
+            </footer>
+          </>
+        )}
       </div>
     </div>
   );

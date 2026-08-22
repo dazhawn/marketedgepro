@@ -4,6 +4,7 @@ type SendableChannel = TextChannel | ForumChannel;
 import { classifySymbol, categoryLabel, type SignalCategory } from "./signal-classifier.js";
 import type { SymbolBriefData, CalendarEventData } from "./discord.js";
 import type { MarketPulse } from "./market-pulse.js";
+import type { StockAlertBrief, PullbackBriefResult, PortfolioHealthResult } from "./brief-sources.js";
 
 let client: Client | null = null;
 let clientReady: Promise<void> | null = null;
@@ -140,6 +141,7 @@ function buildFullEmbed(signal: BotSignalAlert, category: SignalCategory): Embed
       { name: "Symbol", value: signal.symbol, inline: true },
       { name: "Timeframe", value: signal.timeframe, inline: true },
       { name: "Direction", value: `${emoji} ${dir}`, inline: true },
+      { name: "Signal Type", value: signal.signalType || "Indicator Alert", inline: true },
     )
     .setFooter({ text: `MarketEdgePro · ${categoryLabel(category)} Signals` })
     .setTimestamp();
@@ -179,10 +181,116 @@ export async function postSignalViaBot(signal: BotSignalAlert): Promise<void> {
 
 }
 
+function trendGlyph(trend?: string): string {
+  if (trend === "uptrend") return "↗";
+  if (trend === "downtrend") return "↘";
+  if (trend === "sideways") return "→";
+  return "";
+}
+
+// Smart Investor buy-side alerts — the stock-side counterpart to the watchlist
+// brief. Forwarded into MarketEdgePro by the Smart Investor app.
+function buildStockAlertsEmbed(alerts: StockAlertBrief[]): EmbedBuilder | null {
+  if (!alerts.length) return null;
+  const lines = alerts.map(a => {
+    const dir = a.aiDirection?.toUpperCase();
+    const dirEmoji = dir === "BULLISH" ? "🟢" : dir === "BEARISH" ? "🔴" : "⚪";
+    const priceStr = a.price != null ? ` · $${fmt(a.price)}` : "";
+    const trend = trendGlyph(a.trend);
+    const trendStr = trend ? ` ${trend}` : "";
+    const triggers = a.triggers.length ? `\n   ↳ ${a.triggers.join(" · ")}` : "";
+    const name = a.company ? ` *(${a.company})*` : "";
+    return `${dirEmoji} **${a.symbol}**${name}${priceStr}${trendStr}${triggers}`;
+  });
+  return new EmbedBuilder()
+    .setTitle(`🧭 Smart Investor — Buy-Side Watch (${alerts.length})`)
+    .setDescription(lines.join("\n") + "\n\n*RSI / MA-pullback / 52-week / support triggers on large caps.*")
+    .setColor(0x8b5cf6)
+    .setFooter({ text: "MarketEdgePro · Smart Investor Alerts" });
+}
+
+// Top pullback picks from the latest Smart Pullback live-screener run.
+function buildPullbackEmbed(result: PullbackBriefResult): EmbedBuilder | null {
+  if (!result.picks.length) return null;
+  const header = `${pad("SYM", 6)}${pad("SIGNAL", 9)}${pad("PRICE", 9)}${pad("PF", 7)}${pad("WR%", 6)}WHEN`;
+  const lines = result.picks.map(p =>
+    `${pad(p.symbol, 6)}${pad(p.signal, 9)}${pad(p.price.toFixed(2), 9)}${pad(p.pf.toFixed(2), 7)}${pad(p.wr.toFixed(0), 6)}${p.when}`
+  );
+  const table = "```\n" + header + "\n" + lines.join("\n") + "\n```";
+  const more = result.total > result.picks.length ? `\n*+${result.total - result.picks.length} more in the full screener.*` : "";
+  return new EmbedBuilder()
+    .setTitle(`🎯 Top Pullback Picks (${result.picks.length} of ${result.total})`)
+    .setDescription(table + more)
+    .setColor(0x22c55e)
+    .setFooter({ text: `MarketEdgePro · Smart Pullback Screener${result.runAt ? ` · Run: ${result.runAt}` : ""}` });
+}
+
+// EA portfolio health from Myfxbook — equity, live/max drawdown, recovery factor.
+function buildPortfolioEmbed(result?: PortfolioHealthResult): EmbedBuilder | null {
+  if (!result || !result.accounts.length) return null;
+  const rfFlag = (rf: number) => rf >= 3 ? "🟢" : rf >= 1 ? "🟡" : rf >= 0 ? "🟠" : "🔴";
+  const lines = result.accounts.map(a => {
+    const demo = a.demo ? " *(demo)*" : "";
+    const gainSign = a.gainPct >= 0 ? "+" : "";
+    return (
+      `${rfFlag(a.recoveryFactor)} **${a.label}**${demo}\n` +
+      `   Equity ${a.equity.toLocaleString(undefined, { maximumFractionDigits: 0 })} · ` +
+      `cur DD ${a.currentDdPct.toFixed(1)}% · max DD ${a.maxDdPct.toFixed(1)}% · ` +
+      `gain ${gainSign}${a.gainPct.toFixed(1)}% · RF ${a.recoveryFactor.toFixed(2)}`
+    );
+  });
+  return new EmbedBuilder()
+    .setTitle(`🩺 EA Portfolio Health (${result.accounts.length})`)
+    .setDescription(lines.join("\n") + "\n\n*RF: 🟢 ≥3 · 🟡 1–3 · 🟠 0–1 · 🔴 net loss. Live data from Myfxbook.*")
+    .setColor(0x0ea5e9)
+    .setFooter({ text: "MarketEdgePro · EA Portfolio Health" });
+}
+
+/**
+ * Posts a short notice when the morning brief could not be produced.
+ * Without this a failed brief is completely silent, which is how the brief
+ * went missing for weeks before anyone noticed.
+ */
+export async function postBriefFailureViaBot(reason: string): Promise<boolean> {
+  const channelId = process.env[CHANNEL_ENV.brief];
+  if (!channelId) return false;
+
+  const ch = await getChannel(channelId);
+  if (!ch) return false;
+
+  const today = new Date().toLocaleDateString("en-US", {
+    weekday: "long", year: "numeric", month: "long", day: "numeric",
+    timeZone: "America/New_York",
+  });
+
+  const embed = new EmbedBuilder()
+    .setTitle("⚠️ Morning Brief Unavailable")
+    .setDescription(
+      `Today's brief (${today}) could not be generated and will be retried.\n\n` +
+      "This is usually the AI provider being unreachable, out of credit, or rate limited.",
+    )
+    .addFields({ name: "Reason", value: "```" + reason.slice(0, 900) + "```" })
+    .setColor(0xf59e0b)
+    .setTimestamp();
+
+  try {
+    if (ch.isTextBased() && "send" in ch) {
+      await (ch as TextChannel).send({ embeds: [embed] });
+      return true;
+    }
+  } catch (err) {
+    console.error("[discord-bot] Failed to post brief failure notice:", err);
+  }
+  return false;
+}
+
 export async function postMorningBriefViaBot(
   symbols: SymbolBriefData[],
   calendarEvents: CalendarEventData[] = [],
-  pulse?: MarketPulse
+  pulse?: MarketPulse,
+  stockAlerts: StockAlertBrief[] = [],
+  pullbacks?: PullbackBriefResult,
+  portfolio?: PortfolioHealthResult
 ): Promise<boolean> {
   const channelId = process.env[CHANNEL_ENV.brief];
   if (!channelId) return false;
@@ -239,6 +347,20 @@ export async function postMorningBriefViaBot(
 
   embeds.push(briefEmbed);
 
+  // Smart Investor buy-side alerts (stock side)
+  const stockEmbed = buildStockAlertsEmbed(stockAlerts);
+  if (stockEmbed) embeds.push(stockEmbed);
+
+  // Top pullback picks from the latest live-screener run
+  if (pullbacks) {
+    const pullbackEmbed = buildPullbackEmbed(pullbacks);
+    if (pullbackEmbed) embeds.push(pullbackEmbed);
+  }
+
+  // EA portfolio health (Myfxbook)
+  const portfolioEmbed = buildPortfolioEmbed(portfolio);
+  if (portfolioEmbed) embeds.push(portfolioEmbed);
+
   if (calendarEvents.length > 0) {
     const impactEmoji = (i: string) => i === "High" ? "🔴" : i === "Medium" ? "🟡" : "⚪";
 
@@ -281,6 +403,94 @@ export async function postMorningBriefViaBot(
   return await sendToChannel(ch, `Morning Brief — ${now}`, embeds);
 }
 
+// Pad/truncate helper for the monospace screener tables.
+function pad(s: string, width: number): string {
+  return s.length > width ? s.slice(0, width) : s.padEnd(width);
+}
+
+export async function postScreenerResultsViaBot(
+  mode: "live" | "options",
+  rows: Array<Record<string, any>>,
+  meta: { file: string; runAt: string; count: number } | null
+): Promise<{ sent: boolean; reason?: string }> {
+  if (!process.env.DISCORD_BOT_TOKEN) {
+    console.warn("[discord-bot] DISCORD_BOT_TOKEN not set");
+    return { sent: false, reason: "Discord bot token not configured (DISCORD_BOT_TOKEN missing on the server)." };
+  }
+  const channelId = process.env.DISCORD_SCREENER_CHANNEL_ID;
+  if (!channelId) {
+    console.warn("[discord-bot] DISCORD_SCREENER_CHANNEL_ID not set");
+    return { sent: false, reason: "Screener Discord channel isn't configured — set DISCORD_SCREENER_CHANNEL_ID in your Railway env vars." };
+  }
+  const ch = await getChannel(channelId);
+  if (!ch) {
+    return { sent: false, reason: "Couldn't reach the configured Discord channel — check DISCORD_SCREENER_CHANNEL_ID and that the bot has access to it." };
+  }
+
+  const title = mode === "live"
+    ? `🔥 Smart Pullback — Live Signals (${meta?.count ?? rows.length} found)`
+    : `📊 Smart Pullback — Options Screener (${meta?.count ?? rows.length} stocks)`;
+
+  // Monospace table rows — aligned columns read far better than prose lines
+  // for long lists. Direction arrows stay outside the code block via the
+  // header; inside we use plain LONG/SHORT text.
+  const header = mode === "live"
+    ? `${pad("#", 3)}${pad("SYM", 6)}${pad("SIGNAL", 9)}${pad("PRICE", 9)}${pad("PF", 7)}${pad("WR%", 7)}WHEN`
+    : `${pad("#", 3)}${pad("SYM", 6)}${pad("TREND", 7)}${pad("PRICE", 9)}${pad("PF", 7)}${pad("WR%", 7)}TRADES`;
+
+  const lines = mode === "live"
+    ? rows.map((r, i) => {
+        const mark = r.barsAgo === 0 ? "*" : " ";
+        return `${pad(String(i + 1), 3)}${pad(String(r.symbol ?? ""), 6)}${pad(String(r.signal ?? ""), 9)}${pad(Number(r.price).toFixed(2), 9)}${pad(Number(r.histPf).toFixed(2), 7)}${pad(Number(r.wr).toFixed(1), 7)}${r.when ?? ""}${mark === "*" ? "  <- today" : ""}`;
+      })
+    : rows.map((r, i) =>
+        `${pad(String(i + 1), 3)}${pad(String(r.symbol ?? ""), 6)}${pad(String(r.trend ?? ""), 7)}${pad(Number(r.price).toFixed(2), 9)}${pad(Number(r.pf).toFixed(2), 7)}${pad(Number(r.wr).toFixed(1), 7)}${r.trades ?? ""}`
+      );
+
+  const longCount = mode === "options"
+    ? rows.filter(r => String(r.trend).includes("LONG")).length
+    : rows.filter(r => String(r.signal).includes("LONG")).length;
+  const shortCount = rows.length - longCount;
+  const summary = `📈 **${longCount} LONG**  ·  📉 **${shortCount} SHORT**`;
+
+  // Discord caps an embed description at 4096 chars and a message at 10
+  // embeds — chunk the table across embeds so every row is included.
+  const MAX_DESC = 3800;
+  const chunks: string[][] = [];
+  let current: string[] = [];
+  let currentLen = header.length + 20;
+  for (const line of lines) {
+    if (currentLen + line.length + 1 > MAX_DESC && current.length) {
+      chunks.push(current);
+      current = [];
+      currentLen = header.length + 20;
+    }
+    current.push(line);
+    currentLen += line.length + 1;
+  }
+  if (current.length) chunks.push(current);
+
+  const MAX_EMBEDS = 10;
+  const embeds = chunks.slice(0, MAX_EMBEDS).map((chunkLines, i) => {
+    const table = "```\n" + header + "\n" + chunkLines.join("\n") + "\n```";
+    const desc = i === 0 ? `${summary}\n${table}` : table;
+    return new EmbedBuilder()
+      .setTitle(i === 0 ? title : `${title} — cont'd (${i + 1}/${Math.min(chunks.length, MAX_EMBEDS)})`)
+      .setDescription(desc)
+      .setColor(mode === "live" ? 0x22c55e : 0x6366f1)
+      .setFooter({ text: `MarketEdgePro · Smart Pullback Screener${meta ? ` · Run: ${meta.runAt}` : ""}` })
+      .setTimestamp();
+  });
+  if (chunks.length > MAX_EMBEDS) {
+    const dropped = chunks.length - MAX_EMBEDS;
+    const last = embeds[embeds.length - 1];
+    last.setDescription(`${last.data.description}\n*…${dropped} more chunk(s) omitted (Discord 10-embed limit).*`);
+  }
+
+  const ok = await sendToChannel(ch, title, embeds);
+  return { sent: ok, reason: ok ? undefined : "Discord rejected the message — check server logs for details." };
+}
+
 export function getBotStatus(): { configured: boolean; channels: Record<string, boolean> } {
   return {
     configured: !!process.env.DISCORD_BOT_TOKEN,
@@ -291,6 +501,7 @@ export function getBotStatus(): { configured: boolean; channels: Record<string, 
       crypto: !!process.env.DISCORD_CRYPTO_CHANNEL_ID,
       stocks: !!process.env.DISCORD_STOCKS_CHANNEL_ID,
       brief: !!process.env.DISCORD_BRIEF_CHANNEL_ID,
+      screener: !!process.env.DISCORD_SCREENER_CHANNEL_ID,
     },
   };
 }

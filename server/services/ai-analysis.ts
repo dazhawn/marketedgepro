@@ -135,14 +135,25 @@ async function analyzeViaAtlasCloud(prompt: string): Promise<AiAnalysisResult> {
   return parseAiResponse(responseText);
 }
 
+/** Override with ANTHROPIC_MODEL to trade cost against depth (e.g. claude-haiku-4-5). */
+const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-5";
+
 async function analyzeViaAnthropic(prompt: string): Promise<AiAnalysisResult> {
   const message = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 1024,
+    model: ANTHROPIC_MODEL,
+    // Headroom for the JSON payload. Thinking is adaptive by default on Opus 5
+    // and is billed against this ceiling, so 1024 would truncate mid-object.
+    max_tokens: 4096,
+    // A per-symbol news-bias read is a short structured extraction, not deep
+    // reasoning — low effort keeps the daily brief quick and cheap.
+    output_config: { effort: "low" },
     messages: [{ role: "user", content: prompt }],
   });
-  const responseText = message.content[0].type === "text" ? message.content[0].text : "";
-  console.log("[ai-analysis] Anthropic SDK responded");
+  // content is a discriminated union; find the text block rather than assuming
+  // index 0, which is a thinking block whenever thinking runs.
+  const textBlock = message.content.find(b => b.type === "text");
+  const responseText = textBlock && textBlock.type === "text" ? textBlock.text : "";
+  console.log(`[ai-analysis] Anthropic (${ANTHROPIC_MODEL}) responded`);
   return parseAiResponse(responseText);
 }
 
@@ -156,15 +167,28 @@ export async function analyzeMarket(
 ): Promise<AiAnalysisResult> {
   const prompt = buildPrompt(symbol, timeframe, newsContext, marketDataContext, additionalContext, signalData);
   const provider = (process.env.AI_PROVIDER ?? "anthropic").toLowerCase();
+  const useAtlasFirst = provider === "atlascloud" || provider === "atlas";
 
   try {
-    if (provider === "atlascloud" || provider === "atlas") {
-      return await analyzeViaAtlasCloud(prompt);
-    }
-    return await analyzeViaAnthropic(prompt);
+    return useAtlasFirst ? await analyzeViaAtlasCloud(prompt) : await analyzeViaAnthropic(prompt);
   } catch (error) {
-    console.error("AI analysis error:", error);
-    throw error;
+    console.error(`AI analysis error (${useAtlasFirst ? "atlascloud" : "anthropic"}):`, error);
+
+    // Fall back to the other provider when it is configured. A billing lapse on
+    // one provider previously took the whole morning brief down for weeks;
+    // failing over keeps the brief alive instead of producing nothing.
+    const fallbackConfigured = useAtlasFirst
+      ? !!process.env.ANTHROPIC_API_KEY
+      : !!process.env.ATLASCLOUD_API_KEY;
+    if (!fallbackConfigured) throw error;
+
+    console.warn(`[ai-analysis] Falling back to ${useAtlasFirst ? "anthropic" : "atlascloud"}`);
+    try {
+      return useAtlasFirst ? await analyzeViaAnthropic(prompt) : await analyzeViaAtlasCloud(prompt);
+    } catch (fallbackError) {
+      console.error("AI analysis fallback also failed:", fallbackError);
+      throw error; // surface the primary provider's error, it is the actionable one
+    }
   }
 }
 
@@ -180,7 +204,7 @@ export function getAiProviderStatus(): { provider: string; model: string; config
   }
   return {
     provider: "anthropic",
-    model: "claude-sonnet-4-20250514",
+    model: ANTHROPIC_MODEL,
     configured: !!process.env.ANTHROPIC_API_KEY,
   };
 }

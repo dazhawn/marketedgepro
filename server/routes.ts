@@ -12,8 +12,12 @@ import { postSignalViaBot, postMorningBriefViaBot, getBotStatus } from "./servic
 import { sendPhoneNotification } from "./services/notifications";
 import { buildSymbolBrief } from "./services/scheduler";
 import { buildMarketPulse } from "./services/market-pulse";
+import { gatherExtraBriefSections } from "./services/brief-sources";
 import { fetchEconomicCalendar, getTodayEvents, getTomorrowEvents, filterByHighImpact, filterByWatchlistCurrencies } from "./services/economic-calendar";
 import { requireAuth } from "./auth";
+import { readLiveSignals, readOptionsSignals, runScreener, screenerAvailable } from "./services/pullback-screener";
+import { postScreenerResultsViaBot } from "./services/discord-bot";
+import { getCatalogue, type Tier } from "./services/settings-library";
 
 const aiRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -258,6 +262,7 @@ export async function registerRoutes(
         if (input.tp1 != null) confluenceData.tp1 = input.tp1;
         if (input.tp2 != null) confluenceData.tp2 = input.tp2;
         if (input.tp3 != null) confluenceData.tp3 = input.tp3;
+        if (input.customData) confluenceData.customData = input.customData as Record<string, unknown>;
 
         const signal = await storage.createSignal({
           symbol: input.symbol,
@@ -771,13 +776,14 @@ export async function registerRoutes(
       if (!watchlist.length) {
         return res.json({ sent: false, message: "No watchlist items" });
       }
-      // Build all briefs + market pulse in parallel
-      const [briefResults, pulseResult] = await Promise.all([
+      // Build all briefs + market pulse + extra sections in parallel
+      const [briefResults, pulseResult, extras] = await Promise.all([
         Promise.allSettled(watchlist.map((item: any) => buildSymbolBrief(item.symbol, item.name))),
         buildMarketPulse().catch(err => {
           console.error("[morning-brief] pulse failed:", err);
           return undefined;
         }),
+        gatherExtraBriefSections(),
       ]);
       const briefs = briefResults
         .filter((r): r is PromiseFulfilledResult<any> => r.status === "fulfilled" && r.value != null)
@@ -800,11 +806,155 @@ export async function registerRoutes(
       } catch { /* calendar is optional */ }
       // Use Discord bot if configured, fall back to webhook
       const sent = process.env.DISCORD_BOT_TOKEN
-        ? await postMorningBriefViaBot(briefs, calendarEvents, pulse)
+        ? await postMorningBriefViaBot(briefs, calendarEvents, pulse, extras.stockAlerts, extras.pullbacks, extras.portfolio)
         : await sendMorningBrief(briefs, calendarEvents);
-      res.json({ sent, symbolCount: briefs.length, calendarEventCount: calendarEvents.length, pulseItems: pulse?.items.length ?? 0 });
+      res.json({
+        sent,
+        symbolCount: briefs.length,
+        calendarEventCount: calendarEvents.length,
+        pulseItems: pulse?.items.length ?? 0,
+        stockAlertCount: extras.stockAlerts.length,
+        pullbackCount: extras.pullbacks.picks.length,
+        eaAccountCount: extras.portfolio.accounts.length,
+      });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to send morning brief" });
+    }
+  });
+
+  // ── Smart Pullback Screener ─────────────────────────────────────────────────
+  // The Python screeners run on the trading PC and PUSH results here (the cloud
+  // instance has no Python/scripts). DB is the source of truth; reading the
+  // local CSVs remains as a fallback for local development on the PC.
+
+  async function latestScreenerResults(mode: "live" | "options") {
+    const run = await storage.getLatestScreenerRun(mode);
+    if (run) return { rows: run.rows as any[], meta: run.meta };
+    return mode === "live" ? readLiveSignals() : readOptionsSignals();
+  }
+
+  app.get("/api/screener/live", requireAuth, async (_req, res) => {
+    try {
+      res.json(await latestScreenerResults("live"));
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message ?? "Failed to read live signals" });
+    }
+  });
+
+  app.get("/api/screener/options", requireAuth, async (_req, res) => {
+    try {
+      res.json(await latestScreenerResults("options"));
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message ?? "Failed to read options signals" });
+    }
+  });
+
+  // Upload endpoint for the trading PC (authenticated by webhook secret).
+  app.post("/api/screener/results", async (req, res) => {
+    const webhookSecret = process.env.SESSION_SECRET;
+    const headerSecret = req.headers["x-webhook-secret"] as string | undefined;
+    if (!webhookSecret || headerSecret !== webhookSecret) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const mode = req.body?.mode === "options" ? "options" : req.body?.mode === "live" ? "live" : null;
+    const rows = req.body?.rows;
+    const meta = req.body?.meta;
+    if (!mode || !Array.isArray(rows) || !meta?.file || !meta?.runAt) {
+      return res.status(400).json({ message: "Expected { mode: 'live'|'options', rows: [], meta: { file, runAt, count } }" });
+    }
+    try {
+      const run = await storage.saveScreenerRun(mode, rows, { ...meta, count: rows.length });
+      console.log(`[screener] Stored ${mode} upload: ${rows.length} rows from ${meta.file}`);
+      res.json({ ok: true, id: run.id, mode, count: rows.length });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message ?? "Failed to store screener results" });
+    }
+  });
+
+  app.post("/api/screener/run", requireAuth, async (req, res) => {
+    const mode = req.body?.mode === "options" ? "options" : "live";
+    // On the trading PC (local dev) the Python scripts exist — run directly.
+    if (screenerAvailable(mode)) {
+      try {
+        const { pid } = runScreener(mode);
+        return res.json({ started: true, mode, pid });
+      } catch (err: any) {
+        return res.status(500).json({ message: err?.message ?? "Failed to launch screener" });
+      }
+    }
+    // In the cloud, queue a request the PC poller will pick up (within ~5 min).
+    try {
+      await storage.createScreenerRequest(mode);
+      res.json({
+        queued: true,
+        mode,
+        message:
+          `${mode === "live" ? "Live" : "Options"} screener requested. The trading PC will run it ` +
+          "within a few minutes and fresh results will appear here automatically.",
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message ?? "Failed to queue screener run" });
+    }
+  });
+
+  // Poller endpoints (trading PC, authenticated by webhook secret).
+  app.get("/api/screener/pending", async (req, res) => {
+    const webhookSecret = process.env.SESSION_SECRET;
+    const headerSecret = req.headers["x-webhook-secret"] as string | undefined;
+    if (!webhookSecret || headerSecret !== webhookSecret) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    try {
+      const pending = await storage.getPendingScreenerRequests();
+      const modes = Array.from(new Set(pending.map(r => r.mode)));
+      res.json({ modes });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message ?? "Failed to read pending requests" });
+    }
+  });
+
+  app.post("/api/screener/fulfill", async (req, res) => {
+    const webhookSecret = process.env.SESSION_SECRET;
+    const headerSecret = req.headers["x-webhook-secret"] as string | undefined;
+    if (!webhookSecret || headerSecret !== webhookSecret) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const mode = req.body?.mode === "options" ? "options" : req.body?.mode === "live" ? "live" : null;
+    if (!mode) return res.status(400).json({ message: "Expected { mode: 'live'|'options' }" });
+    try {
+      const cleared = await storage.fulfillScreenerRequests(mode);
+      res.json({ ok: true, mode, cleared });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message ?? "Failed to fulfill requests" });
+    }
+  });
+
+  app.post("/api/screener/post-discord", requireAuth, async (req, res) => {
+    const mode = req.body?.mode === "options" ? "options" : "live";
+    try {
+      const { rows, meta } = await latestScreenerResults(mode);
+      if (!rows.length) return res.json({ sent: false, message: "No results to post" });
+      const { sent, reason } = await postScreenerResultsViaBot(mode, rows as any, meta);
+      res.json({ sent, count: rows.length, message: reason });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message ?? "Failed to post to Discord" });
+    }
+  });
+
+  // ── Settings Library ─────────────────────────────────────────────────────
+  // Read-only catalogue of tuned Renko + MTF Confluence configurations.
+  // Sweeps run offline and publish server/data/settings-configs.json; nothing
+  // is computed here. Tier gating is applied server-side so a locked entry's
+  // metrics and settings never reach the browser.
+  app.get("/api/settings/configs.json", requireAuth, async (_req, res) => {
+    try {
+      // No subscriber accounts yet — the page is admin-only, so the viewer sees
+      // the whole catalogue. When subscriber tiers land, read the tier off the
+      // authenticated user here instead of the env default.
+      const viewerTier = (process.env.SETTINGS_DEFAULT_TIER as Tier) || "strategy";
+      res.json(getCatalogue(viewerTier));
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message ?? "Failed to read settings catalogue" });
     }
   });
 

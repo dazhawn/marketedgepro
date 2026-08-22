@@ -1,12 +1,13 @@
 import { db } from "./db";
 import {
-  analyses, watchlist, signals, waitlist,
+  analyses, watchlist, signals, waitlist, screenerRuns, screenerRequests, appState,
   type InsertAnalysis, type Analysis,
   type InsertWatchlistItem, type WatchlistItem,
   type InsertSignal, type Signal,
   type InsertWaitlistEntry, type WaitlistEntry,
+  type ScreenerRun, type ScreenerRequest,
 } from "@shared/schema";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, and, gte } from "drizzle-orm";
 
 export interface IStorage {
   getAnalyses(): Promise<Analysis[]>;
@@ -22,9 +23,15 @@ export interface IStorage {
   markSignalAnalyzed(id: number): Promise<boolean>;
   updateSignalDirection(id: number, direction: string): Promise<boolean>;
   getLatestSignalForSymbol(symbol: string): Promise<Signal | undefined>;
+  getRecentSignalsByType(signalType: string, sinceHours: number): Promise<Signal[]>;
   getWaitlist(): Promise<WaitlistEntry[]>;
   addToWaitlist(entry: InsertWaitlistEntry): Promise<WaitlistEntry>;
   deleteWaitlistEntry(id: number): Promise<boolean>;
+  saveScreenerRun(mode: string, rows: Record<string, unknown>[], meta: { file: string; runAt: string; count: number }): Promise<ScreenerRun>;
+  getLatestScreenerRun(mode: string): Promise<ScreenerRun | undefined>;
+  createScreenerRequest(mode: string): Promise<ScreenerRequest>;
+  getPendingScreenerRequests(): Promise<ScreenerRequest[]>;
+  fulfillScreenerRequests(mode: string): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -90,6 +97,13 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
+  async getRecentSignalsByType(signalType: string, sinceHours: number): Promise<Signal[]> {
+    const since = new Date(Date.now() - sinceHours * 60 * 60 * 1000);
+    return await db.select().from(signals)
+      .where(and(eq(signals.signalType, signalType), gte(signals.receivedAt, since)))
+      .orderBy(desc(signals.receivedAt));
+  }
+
   async getWaitlist(): Promise<WaitlistEntry[]> {
     return await db.select().from(waitlist).orderBy(desc(waitlist.createdAt));
   }
@@ -102,6 +116,53 @@ export class DatabaseStorage implements IStorage {
   async deleteWaitlistEntry(id: number): Promise<boolean> {
     const result = await db.delete(waitlist).where(eq(waitlist.id, id)).returning();
     return result.length > 0;
+  }
+
+  async saveScreenerRun(
+    mode: string,
+    rows: Record<string, unknown>[],
+    meta: { file: string; runAt: string; count: number },
+  ): Promise<ScreenerRun> {
+    const [result] = await db.insert(screenerRuns).values({ mode, rows, meta }).returning();
+    return result;
+  }
+
+  async getLatestScreenerRun(mode: string): Promise<ScreenerRun | undefined> {
+    const [result] = await db.select().from(screenerRuns)
+      .where(eq(screenerRuns.mode, mode))
+      .orderBy(desc(screenerRuns.receivedAt))
+      .limit(1);
+    return result;
+  }
+
+  async createScreenerRequest(mode: string): Promise<ScreenerRequest> {
+    const [result] = await db.insert(screenerRequests).values({ mode }).returning();
+    return result;
+  }
+
+  async getPendingScreenerRequests(): Promise<ScreenerRequest[]> {
+    return await db.select().from(screenerRequests)
+      .where(sql`${screenerRequests.fulfilledAt} IS NULL`)
+      .orderBy(desc(screenerRequests.requestedAt));
+  }
+
+  async fulfillScreenerRequests(mode: string): Promise<number> {
+    const result = await db.update(screenerRequests)
+      .set({ fulfilledAt: new Date() })
+      .where(sql`${screenerRequests.mode} = ${mode} AND ${screenerRequests.fulfilledAt} IS NULL`)
+      .returning();
+    return result.length;
+  }
+
+  async getAppState(key: string): Promise<string | null> {
+    const [row] = await db.select().from(appState).where(eq(appState.key, key));
+    return row?.value ?? null;
+  }
+
+  async setAppState(key: string, value: string): Promise<void> {
+    await db.insert(appState)
+      .values({ key, value, updatedAt: new Date() })
+      .onConflictDoUpdate({ target: appState.key, set: { value, updatedAt: new Date() } });
   }
 }
 

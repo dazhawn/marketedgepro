@@ -202,6 +202,9 @@ export const api = {
         tp3: z.number().nullable().optional(),
         autoAnalyze: z.boolean().nullable().optional(),
         alert_message: z.string().nullable().optional(),
+        // Free-form context from external senders (e.g. Smart Investor sends
+        // its full alert: triggers, trend read, earnings summary, headlines).
+        customData: z.record(z.unknown()).nullable().optional(),
       }).transform((data) => {
         // Normalize `action` field to `direction` if direction wasn't supplied
         if (data.action && data.direction === "NEUTRAL") {

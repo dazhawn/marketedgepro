@@ -4,12 +4,25 @@ import { fetchMarketNews } from "./news";
 import { fetchForexRate, fetchStockQuote } from "./market-data";
 import { analyzeMarket } from "./ai-analysis";
 import { sendMorningBrief } from "./discord";
-import { postMorningBriefViaBot } from "./discord-bot";
+import { postMorningBriefViaBot, postBriefFailureViaBot } from "./discord-bot";
 import { buildMarketPulse } from "./market-pulse";
+import { gatherExtraBriefSections } from "./brief-sources";
 import { fetchEconomicCalendar, getTodayEvents, getTomorrowEvents, filterByWatchlistCurrencies, type CalendarEvent } from "./economic-calendar";
 
 let schedulerStarted = false;
-let lastBriefDate: string | null = null;
+
+// Key for the "brief already sent on this EST date" marker in the app_state
+// table. It lives in Postgres rather than memory because a container restart
+// used to wipe it, which is how briefs could silently skip a day.
+const BRIEF_SENT_KEY = "morning_brief_last_sent_date";
+// Separate marker so the retry sweep doesn't post the same failure notice on
+// every attempt — members see it once per day, not four times.
+const BRIEF_FAIL_NOTICE_KEY = "morning_brief_last_failure_notice_date";
+
+/** Today's date in America/New_York as YYYY-MM-DD. */
+function estToday(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+}
 
 export interface SymbolBrief {
   symbol: string;
@@ -55,13 +68,18 @@ export async function buildSymbolBrief(symbol: string, name: string): Promise<Sy
 }
 
 async function runMorningBrief(source: string) {
-  // Guard against double-sending if server restarts multiple times in the 8-9am window
-  const todayEST = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  if (lastBriefDate === todayEST) {
-    console.log(`[scheduler] Morning brief already sent today (${todayEST}), skipping`);
-    return;
+  // Guard against double-sending if the server restarts more than once in the
+  // recovery window. The marker is only written after a SUCCESSFUL send, so a
+  // failed attempt leaves the day open for a retry instead of burning it.
+  const todayEST = estToday();
+  try {
+    if (await storage.getAppState(BRIEF_SENT_KEY) === todayEST) {
+      console.log(`[scheduler] Morning brief already sent today (${todayEST}), skipping`);
+      return;
+    }
+  } catch (err) {
+    console.error("[scheduler] Could not read brief state, proceeding anyway:", err);
   }
-  lastBriefDate = todayEST;
 
   console.log(`[scheduler] Running 8am EST morning news brief (triggered by: ${source})...`);
   try {
@@ -71,17 +89,22 @@ async function runMorningBrief(source: string) {
       return;
     }
 
-    // Build briefs + market pulse in parallel (same as manual trigger)
-    const [briefSettled, pulseResult] = await Promise.all([
+    // Build briefs + market pulse + extra sections in parallel (same as manual trigger)
+    const [briefSettled, pulseResult, extras] = await Promise.all([
       Promise.allSettled(watchlist.map(w => buildSymbolBrief(w.symbol, w.name))),
       buildMarketPulse().catch(err => {
         console.error("[scheduler] Market pulse failed:", err);
         return undefined;
       }),
+      gatherExtraBriefSections(),
     ]);
     const briefs: SymbolBrief[] = briefSettled
       .filter((r): r is PromiseFulfilledResult<SymbolBrief | null> => r.status === "fulfilled" && r.value != null)
       .map(r => r.value!);
+    // Keep the rejection reasons so a total failure can report *why*.
+    const briefFailures: string[] = briefSettled
+      .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+      .map(r => String(r.reason?.message ?? r.reason));
     const pulse = pulseResult ?? undefined;
 
     let calendarEvents: CalendarEvent[] = [];
@@ -101,17 +124,52 @@ async function runMorningBrief(source: string) {
       console.error("[scheduler] Failed to fetch economic calendar:", err);
     }
 
-    if (briefs.length > 0) {
-      // Prefer the Discord bot path (supports forum + text channels) when available
-      if (process.env.DISCORD_BOT_TOKEN) {
-        await postMorningBriefViaBot(briefs, calendarEvents, pulse);
-      } else {
-        await sendMorningBrief(briefs, calendarEvents);
-      }
-      console.log(`[scheduler] Morning brief sent: ${briefs.length} symbols, ${calendarEvents.length} calendar events, pulse=${pulse ? "yes" : "no"}`);
+    if (briefs.length === 0) {
+      // Every symbol failed — almost always the AI provider being down, out of
+      // credit, or rate limited. Say so out loud: a silent no-op here is what
+      // let the brief go missing for weeks without anyone noticing.
+      const reason = briefFailures[0] ?? "unknown error";
+      console.error(`[scheduler] Morning brief produced no symbols. First failure: ${reason}`);
+      await notifyBriefFailure(`No symbol briefs could be generated. First failure: ${reason}`);
+      return; // leave today's marker unset so a later attempt can retry
+    }
+
+    // Prefer the Discord bot path (supports forum + text channels) when available
+    if (process.env.DISCORD_BOT_TOKEN) {
+      await postMorningBriefViaBot(briefs, calendarEvents, pulse, extras.stockAlerts, extras.pullbacks, extras.portfolio);
+    } else {
+      await sendMorningBrief(briefs, calendarEvents);
+    }
+    console.log(`[scheduler] Morning brief sent: ${briefs.length} symbols, ${calendarEvents.length} calendar events, pulse=${pulse ? "yes" : "no"}, si=${extras.stockAlerts.length}, pullbacks=${extras.pullbacks.picks.length}, ea=${extras.portfolio.accounts.length}`);
+
+    // Only now is the day considered done.
+    try {
+      await storage.setAppState(BRIEF_SENT_KEY, todayEST);
+    } catch (err) {
+      console.error("[scheduler] Brief sent but marker write failed:", err);
     }
   } catch (err) {
     console.error("[scheduler] Morning brief failed:", err);
+    await notifyBriefFailure(String((err as Error)?.message ?? err));
+  }
+}
+
+/**
+ * Posts a short failure notice so a broken brief is never silent — but at most
+ * once per EST day, so the hourly retry sweep doesn't spam the channel.
+ */
+async function notifyBriefFailure(reason: string) {
+  try {
+    if (!process.env.DISCORD_BOT_TOKEN) return;
+    const today = estToday();
+    if (await storage.getAppState(BRIEF_FAIL_NOTICE_KEY) === today) {
+      console.log("[scheduler] Failure notice already posted today, staying quiet");
+      return;
+    }
+    const posted = await postBriefFailureViaBot(reason);
+    if (posted) await storage.setAppState(BRIEF_FAIL_NOTICE_KEY, today);
+  } catch (err) {
+    console.error("[scheduler] Could not post brief failure notice:", err);
   }
 }
 
@@ -123,8 +181,11 @@ function isMorningBriefWindow(): boolean {
   );
   const estDay = now.toLocaleString("en-US", { weekday: "short", timeZone: "America/New_York" });
   const isWeekday = !["Sat", "Sun"].includes(estDay);
-  // Fire if startup happens between 8:00am and 8:59am EST on a weekday
-  return isWeekday && estHour === 8;
+  // Any weekday boot from 8:00am up to noon EST is late but still useful, and
+  // the persisted marker means a brief already sent today won't be repeated.
+  // The old window was the 8am hour only, so a container that woke at 9:15
+  // produced nothing at all for that day.
+  return isWeekday && estHour >= 8 && estHour < 12;
 }
 
 export function startScheduler() {
@@ -140,14 +201,22 @@ export function startScheduler() {
 
   console.log("[scheduler] Morning brief scheduled for 8:00 AM EST (Mon-Fri)");
 
-  // Startup recovery: if server boots during the 8am window (e.g. after a deployment),
-  // fire the brief immediately rather than waiting until tomorrow.
+  // Startup recovery: if the server boots any weekday morning before noon and
+  // today's brief hasn't gone out, send it rather than waiting until tomorrow.
   setTimeout(async () => {
     if (isMorningBriefWindow()) {
-      console.log("[scheduler] Startup recovery: detected 8am EST window, firing morning brief now...");
+      console.log("[scheduler] Startup recovery: weekday morning boot, checking today's brief...");
       await runMorningBrief("startup-recovery");
     }
   }, 5000); // 5s delay to let DB connections settle
+
+  // Retry sweep: if the 8am run failed (AI provider down, etc.) the day's marker
+  // stays unset, so re-attempt hourly through the morning until one succeeds.
+  cron.schedule("30 9-11 * * 1-5", async () => {
+    await runMorningBrief("retry-sweep");
+  }, {
+    timezone: "America/New_York",
+  });
 
   // Keep-alive: ping own health endpoint every 4 minutes (only when APP_URL is set)
   const appUrl = process.env.APP_URL;

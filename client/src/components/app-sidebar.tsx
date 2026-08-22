@@ -21,19 +21,24 @@ import {
   Zap,
   Home,
   Mail,
-  Sparkles,
+  BarChart2,
+  LineChart,
+  SlidersHorizontal,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 const navItems = [
-  { title: "Landing Page", url: "/", icon: Home },
-  { title: "Sales Page", url: "/intro", icon: Sparkles },
+  // Landing + sales pages are merged into one public page now.
+  { title: "Website", url: "/", icon: Home },
   { title: "Signal Feed", url: "/admin", icon: Radio },
   { title: "History", url: "/admin/history", icon: History },
-  { title: "Settings", url: "/admin/settings", icon: Settings },
+  { title: "Discord Configurations", url: "/admin/settings", icon: Settings },
   { title: "Waitlist", url: "/admin/waitlist", icon: Mail },
+  { title: "Screener", url: "/admin/screener", icon: BarChart2 },
+  { title: "Smart Investor", url: "/admin/smart-investor", icon: LineChart },
+  { title: "Strategy Settings", url: "/admin/settings-library", icon: SlidersHorizontal },
 ];
 
 function NavItem({ item, isActive }: { item: { title: string; url: string; icon: any }; isActive: boolean }) {

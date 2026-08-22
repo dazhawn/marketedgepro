@@ -49,6 +49,42 @@ export const signals = pgTable("signals", {
   receivedAt: timestamp("received_at").defaultNow(),
 });
 
+// Smart Pullback screener results. The Python screeners run on the trading PC
+// (they can't run in the cloud) and push their CSV results here after each run.
+export const screenerRuns = pgTable("screener_runs", {
+  id: serial("id").primaryKey(),
+  mode: varchar("mode", { length: 10 }).notNull(), // "live" | "options"
+  rows: jsonb("rows").$type<Record<string, unknown>[]>().notNull(),
+  meta: jsonb("meta").$type<{ file: string; runAt: string; count: number }>().notNull(),
+  receivedAt: timestamp("received_at").defaultNow().notNull(),
+});
+
+export type ScreenerRun = typeof screenerRuns.$inferSelect;
+
+// On-demand run requests: the cloud can't run the Python screeners, so the
+// "Run" button records a request here and the PC poller picks it up, runs the
+// screener, uploads results, and marks it fulfilled.
+export const screenerRequests = pgTable("screener_requests", {
+  id: serial("id").primaryKey(),
+  mode: varchar("mode", { length: 10 }).notNull(), // "live" | "options"
+  requestedAt: timestamp("requested_at").defaultNow().notNull(),
+  fulfilledAt: timestamp("fulfilled_at"),
+});
+
+export type ScreenerRequest = typeof screenerRequests.$inferSelect;
+
+// Small key/value store for scheduler state that must survive restarts.
+// The morning brief's "already sent today" marker lives here: keeping it in
+// memory meant every container restart forgot it, so a restart could either
+// re-send the brief or (with a narrow recovery window) skip the day silently.
+export const appState = pgTable("app_state", {
+  key: varchar("key", { length: 64 }).primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type AppState = typeof appState.$inferSelect;
+
 export const waitlist = pgTable("waitlist", {
   id: serial("id").primaryKey(),
   email: varchar("email", { length: 255 }).notNull(),

@@ -1,0 +1,307 @@
+{
+  "schema_version": 1,
+  "generated_utc": "2026-08-22T00:04:50Z",
+  "strategy": "Renko + MTF Confluence Strategy",
+  "disclaimer": "These settings come from a Python re-implementation of the Pine strategy, not from TradingView's Strategy Tester. Backtested results are not a prediction. Load a configuration on your own chart and confirm the trade count and win rate before risking money on it.",
+  "counts": {
+    "total": 3,
+    "validated": 0
+  },
+  "configs": [
+    {
+      "id": "btcusdt-4h",
+      "symbol": "BINANCE:BTCUSDT",
+      "timeframe": "4h",
+      "mtf": [
+        "4h",
+        "8h",
+        "12h",
+        "1D"
+      ],
+      "title": "BTCUSDT 4h",
+      "note": "The only crypto configuration worth publishing. Returns concentrate in 2025: 2024 was flat, 2026 is weak. Trades pullbacks and exits on the ATR trail, with 172 of 192 exits coming from the trail rather than a target.",
+      "tier": "strategy",
+      "validated_against_tradingview": false,
+      "validation": {
+        "match_rate": null,
+        "checked_utc": null,
+        "warning": "This configuration has not yet been reconciled against TradingView's own Strategy Tester. Treat it as a starting point for your own testing rather than a verified backtest."
+      },
+      "data": {
+        "bars": 5000,
+        "start": "2024-05-09",
+        "end": "2026-08-20",
+        "source": "TradingView"
+      },
+      "costs": {
+        "initial_capital": 10000.0,
+        "commission_pct_per_side": 0.075,
+        "slippage_ticks": 2,
+        "slippage_bps": 2.0,
+        "mintick": 0.01
+      },
+      "backtest": {
+        "round_trips": 184,
+        "fills": 192,
+        "win_rate": 45.7,
+        "profit_factor": 1.5,
+        "return_pct": 49.7,
+        "max_drawdown_pct": 9.6,
+        "avg_win_loss": 1.63,
+        "longest_losing_run": 8,
+        "sharpe": 1.85,
+        "avg_bars_held": 4
+      },
+      "settings": {
+        "engine": {
+          "mode": "ATR",
+          "modevalue": 28,
+          "boxsize": 10.0,
+          "src_input": "close",
+          "tremalen": 89,
+          "barcountwhip": 5,
+          "thsreversal": 2.0,
+          "thsreversal2": 3.5
+        },
+        "strategy": {
+          "entry_mode": "Pullback",
+          "min_votes": 2,
+          "use_chart_tf": true,
+          "exit_opposite": true,
+          "allow_reverse": false,
+          "tf_a": "4h",
+          "tf_b": "8h",
+          "tf_c": "12h",
+          "tf_d": "1D",
+          "pb_mode": "Both",
+          "pb_atr_mult": 0.5,
+          "pb_cooldown": 5,
+          "lvl_type": "Trend Flip Anchor",
+          "atr_lvl_len": 14,
+          "sl_atr_mult": 1.5,
+          "tp1_atr_mult": 2.0,
+          "tp2_atr_mult": 3.0,
+          "tp3_atr_mult": 4.0,
+          "sl_pct": 3.0,
+          "tp1_pct": 2.0,
+          "tp2_pct": 3.0,
+          "tp3_pct": 4.0,
+          "tp1_rr": 1.5,
+          "tp2_rr": 2.0,
+          "tp3_rr": 3.0,
+          "use_trail_sl": true,
+          "trail_atr_len": 22,
+          "trail_atr_mult": 1.5,
+          "pb_ratchet_sl": false,
+          "tp1_qty_pct": 33.0,
+          "tp2_qty_pct": 33.0,
+          "tp3_qty_pct": 34.0,
+          "use_session_filter": false,
+          "use_sydney": false,
+          "use_asia": false,
+          "use_london": true,
+          "use_us": true,
+          "ses_tz": "America/New_York"
+        }
+      },
+      "checklist": "Renko Settings\n  Method            =  ATR\n  [ATR] ATR Period  =  28\n  Source            =  close\n\nTrend\n  Trend EMA Length          =  89\n  Wait # Bars for Reversal  =  5\n  Trend Threshold           =  2\n  Reversal Threshold        =  3.5\n\nStrategy Rules\n  Entry Trigger                        =  Pullback\n  MTF Confluence Threshold (of 4)      =  2\n  Include Chart TF in confluence vote  =  checked\n  Exit on opposite mtrend flip         =  checked\n  Auto-reverse on opposite flip        =  unchecked\n\nTP / SL Levels\n  Level Type                           =  Trend Flip Anchor\n  TP1 R:R                              =  1.5\n  TP2 R:R                              =  2\n  TP3 R:R                              =  3\n  Enable Trailing SL (ATR Chandelier)  =  checked\n  Trail ATR Length                     =  22\n  Trail ATR Multiplier                 =  1.5\n  Pullback ratchets SL toward Trail    =  unchecked\n\nPartial TP Sizing\n  TP1 Close % of position  =  33\n  TP2 Close % of position  =  33\n  TP3 Close % of position  =  34\n\nPullback Alerts\n  Pullback Detection Mode        =  Both\n  Tsl Touch Sensitivity (\u00d7 ATR)  =  0.5\n  Cooldown Bars Between Alerts   =  5\n\nMTF Comparison\n  Timeframe A  =  240\n  Timeframe B  =  480\n  Timeframe C  =  720\n  Timeframe D  =  D\n\nTrading Sessions\n  Filter trades by active sessions  =  unchecked"
+    },
+    {
+      "id": "nflx-1h",
+      "symbol": "NASDAQ:NFLX",
+      "timeframe": "1h",
+      "mtf": [
+        "1h",
+        "4h",
+        "12h",
+        "1D"
+      ],
+      "title": "NFLX 1h",
+      "note": "Best-sampled result to date and profitable in every year of the sample. Trades pullbacks inside a slow trend, exiting almost entirely on the ATR trail: 116 of 118 exits were the trail, not a target. Sends few flip alerts.",
+      "tier": "indicator",
+      "validated_against_tradingview": false,
+      "validation": {
+        "match_rate": null,
+        "checked_utc": null,
+        "warning": "This configuration has not yet been reconciled against TradingView's own Strategy Tester. Treat it as a starting point for your own testing rather than a verified backtest."
+      },
+      "data": {
+        "bars": 5000,
+        "start": "2023-10-09",
+        "end": "2026-08-19",
+        "source": "TradingView"
+      },
+      "costs": {
+        "initial_capital": 10000.0,
+        "commission_pct_per_side": 0.05,
+        "slippage_ticks": 2,
+        "slippage_bps": 0.0,
+        "mintick": 0.01
+      },
+      "backtest": {
+        "round_trips": 118,
+        "fills": 118,
+        "win_rate": 51.7,
+        "profit_factor": 3.12,
+        "return_pct": 96.5,
+        "max_drawdown_pct": 3.8,
+        "avg_win_loss": 2.91,
+        "longest_losing_run": 5,
+        "sharpe": 3.22,
+        "avg_bars_held": 4
+      },
+      "settings": {
+        "engine": {
+          "mode": "ATR",
+          "modevalue": 5,
+          "boxsize": 10.0,
+          "src_input": "hl",
+          "tremalen": 8,
+          "barcountwhip": 8,
+          "thsreversal": 5.0,
+          "thsreversal2": 1.0
+        },
+        "strategy": {
+          "entry_mode": "Pullback",
+          "min_votes": 4,
+          "use_chart_tf": true,
+          "exit_opposite": false,
+          "allow_reverse": true,
+          "tf_a": "1h",
+          "tf_b": "4h",
+          "tf_c": "12h",
+          "tf_d": "1D",
+          "pb_mode": "Brick disagree",
+          "pb_atr_mult": 0.05,
+          "pb_cooldown": 5,
+          "lvl_type": "Trend Flip Anchor",
+          "atr_lvl_len": 14,
+          "sl_atr_mult": 1.5,
+          "tp1_atr_mult": 2.0,
+          "tp2_atr_mult": 3.0,
+          "tp3_atr_mult": 4.0,
+          "sl_pct": 3.0,
+          "tp1_pct": 2.0,
+          "tp2_pct": 3.0,
+          "tp3_pct": 4.0,
+          "tp1_rr": 2.0,
+          "tp2_rr": 4.0,
+          "tp3_rr": 5.0,
+          "use_trail_sl": true,
+          "trail_atr_len": 14,
+          "trail_atr_mult": 1.5,
+          "pb_ratchet_sl": false,
+          "tp1_qty_pct": 100.0,
+          "tp2_qty_pct": 0.0,
+          "tp3_qty_pct": 0.0,
+          "use_session_filter": false,
+          "use_sydney": false,
+          "use_asia": false,
+          "use_london": true,
+          "use_us": true,
+          "ses_tz": "America/New_York"
+        }
+      },
+      "checklist": "Renko Settings\n  Method            =  ATR\n  [ATR] ATR Period  =  5\n  Source            =  hl\n\nTrend\n  Trend EMA Length          =  8\n  Wait # Bars for Reversal  =  8\n  Trend Threshold           =  5\n  Reversal Threshold        =  1\n\nStrategy Rules\n  Entry Trigger                        =  Pullback\n  MTF Confluence Threshold (of 4)      =  4\n  Include Chart TF in confluence vote  =  checked\n  Exit on opposite mtrend flip         =  unchecked\n  Auto-reverse on opposite flip        =  checked\n\nTP / SL Levels\n  Level Type                           =  Trend Flip Anchor\n  TP1 R:R                              =  2\n  TP2 R:R                              =  4\n  TP3 R:R                              =  5\n  Enable Trailing SL (ATR Chandelier)  =  checked\n  Trail ATR Length                     =  14\n  Trail ATR Multiplier                 =  1.5\n  Pullback ratchets SL toward Trail    =  unchecked\n\nPartial TP Sizing\n  TP1 Close % of position  =  100\n  TP2 Close % of position  =  0\n  TP3 Close % of position  =  0\n\nPullback Alerts\n  Pullback Detection Mode        =  Brick disagree\n  Tsl Touch Sensitivity (\u00d7 ATR)  =  0.05\n  Cooldown Bars Between Alerts   =  5\n\nMTF Comparison\n  Timeframe A  =  60\n  Timeframe B  =  240\n  Timeframe C  =  720\n  Timeframe D  =  D\n\nTrading Sessions\n  Filter trades by active sessions  =  unchecked"
+    },
+    {
+      "id": "spy-4h",
+      "symbol": "AMEX:SPY",
+      "timeframe": "4h",
+      "mtf": [
+        "4h",
+        "1D",
+        "1W",
+        "1M"
+      ],
+      "title": "SPY 4h",
+      "note": "Chosen over a higher-returning 42-trade configuration that kept only 30% of its in-sample score and switched on an Asian-session filter for a US equity ETF, which has no mechanism behind it. This one has double the sample and nothing unexplained.",
+      "tier": "strategy",
+      "validated_against_tradingview": false,
+      "validation": {
+        "match_rate": null,
+        "checked_utc": null,
+        "warning": "This configuration has not yet been reconciled against TradingView's own Strategy Tester. Treat it as a starting point for your own testing rather than a verified backtest."
+      },
+      "data": {
+        "bars": 3000,
+        "start": "2020-08-25",
+        "end": "2026-08-20",
+        "source": "TradingView"
+      },
+      "costs": {
+        "initial_capital": 10000.0,
+        "commission_pct_per_side": 0.05,
+        "slippage_ticks": 2,
+        "slippage_bps": 0.0,
+        "mintick": 0.01
+      },
+      "backtest": {
+        "round_trips": 93,
+        "fills": 149,
+        "win_rate": 47.3,
+        "profit_factor": 2.15,
+        "return_pct": 50.0,
+        "max_drawdown_pct": 5.3,
+        "avg_win_loss": 1.05,
+        "longest_losing_run": 7,
+        "sharpe": 3.99,
+        "avg_bars_held": 8
+      },
+      "settings": {
+        "engine": {
+          "mode": "ATR",
+          "modevalue": 14,
+          "boxsize": 10.0,
+          "src_input": "hl",
+          "tremalen": 8,
+          "barcountwhip": 2,
+          "thsreversal": 1.5,
+          "thsreversal2": 1.0
+        },
+        "strategy": {
+          "entry_mode": "Both",
+          "min_votes": 2,
+          "use_chart_tf": false,
+          "exit_opposite": true,
+          "allow_reverse": false,
+          "tf_a": "4h",
+          "tf_b": "1D",
+          "tf_c": "1W",
+          "tf_d": "1M",
+          "pb_mode": "Tsl touch",
+          "pb_atr_mult": 0.05,
+          "pb_cooldown": 25,
+          "lvl_type": "Percent",
+          "atr_lvl_len": 14,
+          "sl_atr_mult": 1.5,
+          "tp1_atr_mult": 2.0,
+          "tp2_atr_mult": 3.0,
+          "tp3_atr_mult": 4.0,
+          "sl_pct": 1.0,
+          "tp1_pct": 2.0,
+          "tp2_pct": 3.0,
+          "tp3_pct": 4.0,
+          "tp1_rr": 1.0,
+          "tp2_rr": 2.0,
+          "tp3_rr": 3.0,
+          "use_trail_sl": true,
+          "trail_atr_len": 22,
+          "trail_atr_mult": 2.0,
+          "pb_ratchet_sl": true,
+          "tp1_qty_pct": 25.0,
+          "tp2_qty_pct": 25.0,
+          "tp3_qty_pct": 50.0,
+          "use_session_filter": false,
+          "use_sydney": false,
+          "use_asia": false,
+          "use_london": true,
+          "use_us": true,
+          "ses_tz": "America/New_York"
+        }
+      },
+      "checklist": "Renko Settings\n  Method            =  ATR\n  [ATR] ATR Period  =  14\n  Source            =  hl\n\nTrend\n  Trend EMA Length          =  8\n  Wait # Bars for Reversal  =  2\n  Trend Threshold           =  1.5\n  Reversal Threshold        =  1\n\nStrategy Rules\n  Entry Trigger                        =  Both\n  MTF Confluence Threshold (of 4)      =  2\n  Include Chart TF in confluence vote  =  unchecked\n  Exit on opposite mtrend flip         =  checked\n  Auto-reverse on opposite flip        =  unchecked\n\nTP / SL Levels\n  Level Type                           =  Percent\n  SL  %                                =  1\n  TP1 %                                =  2\n  TP2 %                                =  3\n  TP3 %                                =  4\n  Enable Trailing SL (ATR Chandelier)  =  checked\n  Trail ATR Length                     =  22\n  Trail ATR Multiplier                 =  2\n  Pullback ratchets SL toward Trail    =  checked\n\nPartial TP Sizing\n  TP1 Close % of position  =  25\n  TP2 Close % of position  =  25\n  TP3 Close % of position  =  50\n\nPullback Alerts\n  Pullback Detection Mode        =  Tsl touch\n  Tsl Touch Sensitivity (\u00d7 ATR)  =  0.05\n  Cooldown Bars Between Alerts   =  25\n\nMTF Comparison\n  Timeframe A  =  240\n  Timeframe B  =  D\n  Timeframe C  =  W\n  Timeframe D  =  M\n\nTrading Sessions\n  Filter trades by active sessions  =  unchecked"
+    }
+  ],
+  "failed": []
+}
