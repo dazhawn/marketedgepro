@@ -309,6 +309,126 @@ export function pulseHighlightLine(items: MarketPulse["items"]): string {
   return parts.length ? `⚡ ${parts.join("   |   ")}` : "";
 }
 
+/**
+ * The Market Pulse embed. Shared by the brief channel and the free preview, so
+ * both show the identical snapshot rather than drifting apart.
+ */
+export function buildPulseEmbed(pulse: MarketPulse, now: string): EmbedBuilder | null {
+  if (!pulse.items.length) return null;
+
+  // Snapshot grid: 2 instruments per row.
+  const rows: string[] = [];
+  for (let i = 0; i < pulse.items.length; i += 2) {
+    const a = pulse.items[i];
+    const b = pulse.items[i + 1];
+    const fmtItem = (it: typeof a) => {
+      const sign = it.changePct >= 0 ? "+" : "";
+      const arrow = it.changePct >= 0 ? "🟢" : "🔴";
+      return `${it.emoji ?? ""} **${it.label}** ${it.price} ${arrow} ${sign}${it.changePct.toFixed(2)}%`;
+    };
+    rows.push(b ? `${fmtItem(a)}  •  ${fmtItem(b)}` : fmtItem(a));
+  }
+
+  const line = pulseHighlightLine(pulse.items);
+  const highlight = line ? `\n\n${line}` : "";
+
+  // Ratings are decorative, so serving stale ones is fine — passing them off
+  // as current is not. Say so when it happens.
+  const staleNote = pulse.technicalsStale && pulse.technicalsAsOf
+    ? `\n\n⚠️ *Technicals unavailable — showing values from ${pulse.technicalsAsOf.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit" })} ET.*`
+    : "";
+
+  const footer = pulse.technicalsAsOf
+    ? "Pre-Market Snapshot · Prices from Yahoo Finance · Technicals from TradingView"
+    : "Pre-Market Snapshot · Live data from Yahoo Finance";
+
+  return new EmbedBuilder()
+    .setTitle(`🌅 Market Pulse — ${now}`)
+    .setDescription(
+      rows.join("\n") + highlight + staleNote +
+      (pulse.narrative ? `\n\n📝 *${pulse.narrative}*` : "")
+    )
+    .setColor(0x0ea5e9)
+    .setFooter({ text: footer });
+}
+
+/**
+ * The Economic Calendar embed, grouped by day in EST. Returns null when there
+ * is nothing to show, so callers can simply skip it.
+ */
+export function buildCalendarEmbed(calendarEvents: CalendarEventData[]): EmbedBuilder | null {
+  if (!calendarEvents.length) return null;
+
+  const impactEmoji = (i: string) => i === "High" ? "🔴" : i === "Medium" ? "🟡" : "⚪";
+
+  // Label dates as Today / Tomorrow / weekday (Mon Jun 9) in EST
+  const todayEST = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const tomorrowEST = new Date(Date.now() + 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const dayLabel = (iso: string) => {
+    const d = new Date(iso);
+    const dKey = d.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    if (dKey === todayEST)    return "**Today**";
+    if (dKey === tomorrowEST) return "**Tomorrow**";
+    return `**${d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "America/New_York" })}**`;
+  };
+
+  // Group by day for cleaner readability
+  const grouped: Record<string, CalendarEventData[]> = {};
+  for (const e of calendarEvents) {
+    const key = dayLabel(e.date);
+    (grouped[key] ??= []).push(e);
+  }
+
+  const lines: string[] = [];
+  for (const [day, dayEvents] of Object.entries(grouped)) {
+    lines.push(`\n${day}`);
+    for (const e of dayEvents) {
+      const time = new Date(e.date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "America/New_York" });
+      lines.push(`${impactEmoji(e.impact)} ${e.country} ${e.title} · ${time} EST${e.forecast ? ` | Forecast: ${e.forecast}` : ""}${e.previous ? ` | Prev: ${e.previous}` : ""}`);
+    }
+  }
+
+  return new EmbedBuilder()
+    .setTitle("📅 Economic Calendar — Today & Tomorrow")
+    .setDescription(lines.join("\n") || "*No high/medium impact events*")
+    .setColor(0x6366f1)
+    .setFooter({ text: "High 🔴  Medium 🟡  Low ⚪ — Times in EST" });
+}
+
+/**
+ * Market Pulse + Economic Calendar to the free preview channel.
+ *
+ * These are macro context rather than paid signal detail, so the free tier gets
+ * them in full — unlike signals, which are teased there. Deliberately isolated:
+ * this runs after the paying channel has already been served, and any failure
+ * is logged and swallowed so a free-channel problem can never cost subscribers
+ * their brief.
+ */
+async function postFreePreviewExtras(pulse: MarketPulse | undefined, calendarEvents: CalendarEventData[], now: string): Promise<void> {
+  const freeChannelId = process.env[CHANNEL_ENV.free];
+  if (!freeChannelId) return;
+
+  const extras: EmbedBuilder[] = [];
+  if (pulse) {
+    const e = buildPulseEmbed(pulse, now);
+    if (e) extras.push(e);
+  }
+  const cal = buildCalendarEmbed(calendarEvents);
+  if (cal) extras.push(cal);
+  if (!extras.length) return;
+
+  try {
+    const freeCh = await getChannel(freeChannelId);
+    if (!freeCh) {
+      console.error("[discord-bot] free preview channel unreachable — skipping pulse/calendar");
+      return;
+    }
+    await sendToChannel(freeCh, `Market Pulse — ${now}`, extras);
+  } catch (err) {
+    console.error("[discord-bot] free preview extras failed (brief unaffected):", err);
+  }
+}
+
 export async function postMorningBriefViaBot(
   symbols: SymbolBriefData[],
   calendarEvents: CalendarEventData[] = [],
@@ -332,41 +452,8 @@ export async function postMorningBriefViaBot(
 
   // Market Pulse — quantitative snapshot + AI narrative
   if (pulse && pulse.items.length > 0) {
-    // Build the snapshot grid: 2 items per row
-    const rows: string[] = [];
-    for (let i = 0; i < pulse.items.length; i += 2) {
-      const a = pulse.items[i];
-      const b = pulse.items[i + 1];
-      const fmtItem = (it: typeof a) => {
-        const sign = it.changePct >= 0 ? "+" : "";
-        const arrow = it.changePct >= 0 ? "🟢" : "🔴";
-        return `${it.emoji ?? ""} **${it.label}** ${it.price} ${arrow} ${sign}${it.changePct.toFixed(2)}%`;
-      };
-      rows.push(b ? `${fmtItem(a)}  •  ${fmtItem(b)}` : fmtItem(a));
-    }
-
-    const line = pulseHighlightLine(pulse.items);
-    const highlight = line ? `\n\n${line}` : "";
-
-    // Ratings are decorative, so serving stale ones is fine — passing them off
-    // as current is not. Say so when it happens.
-    const staleNote = pulse.technicalsStale && pulse.technicalsAsOf
-      ? `\n\n⚠️ *Technicals unavailable — showing values from ${pulse.technicalsAsOf.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit" })} ET.*`
-      : "";
-
-    const footer = pulse.technicalsAsOf
-      ? "Pre-Market Snapshot · Prices from Yahoo Finance · Technicals from TradingView"
-      : "Pre-Market Snapshot · Live data from Yahoo Finance";
-
-    const pulseEmbed = new EmbedBuilder()
-      .setTitle(`🌅 Market Pulse — ${now}`)
-      .setDescription(
-        rows.join("\n") + highlight + staleNote +
-        (pulse.narrative ? `\n\n📝 *${pulse.narrative}*` : "")
-      )
-      .setColor(0x0ea5e9)
-      .setFooter({ text: footer });
-    embeds.push(pulseEmbed);
+    const pulseEmbed = buildPulseEmbed(pulse, now);
+    if (pulseEmbed) embeds.push(pulseEmbed);
   }
 
   const briefEmbed = new EmbedBuilder()
@@ -403,46 +490,14 @@ export async function postMorningBriefViaBot(
   const portfolioEmbed = buildPortfolioEmbed(portfolio);
   if (portfolioEmbed) embeds.push(portfolioEmbed);
 
-  if (calendarEvents.length > 0) {
-    const impactEmoji = (i: string) => i === "High" ? "🔴" : i === "Medium" ? "🟡" : "⚪";
+  const calendarEmbed = buildCalendarEmbed(calendarEvents);
+  if (calendarEmbed) embeds.push(calendarEmbed);
 
-    // Label dates as Today / Tomorrow / weekday (Mon Jun 9) in EST
-    const todayEST = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-    const tomorrowEST = new Date(Date.now() + 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-    const dayLabel = (iso: string) => {
-      const d = new Date(iso);
-      const dKey = d.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-      if (dKey === todayEST)    return "**Today**";
-      if (dKey === tomorrowEST) return "**Tomorrow**";
-      return `**${d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "America/New_York" })}**`;
-    };
-
-    // Group by day for cleaner readability
-    const grouped: Record<string, typeof calendarEvents> = {};
-    for (const e of calendarEvents) {
-      const key = dayLabel(e.date);
-      (grouped[key] ??= []).push(e);
-    }
-
-    const lines: string[] = [];
-    for (const [day, dayEvents] of Object.entries(grouped)) {
-      lines.push(`\n${day}`);
-      for (const e of dayEvents) {
-        const time = new Date(e.date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "America/New_York" });
-        lines.push(`${impactEmoji(e.impact)} ${e.country} ${e.title} · ${time} EST${e.forecast ? ` | Forecast: ${e.forecast}` : ""}${e.previous ? ` | Prev: ${e.previous}` : ""}`);
-      }
-    }
-
-    embeds.push(
-      new EmbedBuilder()
-        .setTitle("📅 Economic Calendar — Today & Tomorrow")
-        .setDescription(lines.join("\n") || "*No high/medium impact events*")
-        .setColor(0x6366f1)
-        .setFooter({ text: "High 🔴  Medium 🟡  Low ⚪ — Times in EST" })
-    );
-  }
-
-  return await sendToChannel(ch, `Morning Brief — ${now}`, embeds);
+  // Serve the paying channel first, then mirror the free-tier sections. Awaited
+  // rather than fire-and-forget so failures surface in the logs of this request.
+  const sent = await sendToChannel(ch, `Morning Brief — ${now}`, embeds);
+  await postFreePreviewExtras(pulse, calendarEvents, now);
+  return sent;
 }
 
 // Pad/truncate helper for the monospace screener tables.

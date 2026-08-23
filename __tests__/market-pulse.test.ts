@@ -141,3 +141,64 @@ describe("pulseHighlightLine", () => {
     expect(pulseHighlightLine([item("C", 30.6)])).toBe("");
   });
 });
+
+describe("buildPulseEmbed", () => {
+  const pulse = (over: Record<string, unknown> = {}) => ({
+    items: [
+      { label: "SPX", emoji: "📈", price: "7,674", changePct: -0.44, rsi: 53.9 },
+      { label: "BTC", emoji: "₿", price: "77,554", changePct: 0.61, rsi: 80.1 },
+    ],
+    narrative: "Risk tone neutral.",
+    ...over,
+  }) as any;
+
+  it("includes the highlight line and credits TradingView when technicals are present", async () => {
+    const { buildPulseEmbed } = await import("../server/services/discord-bot.js");
+    const e = buildPulseEmbed(pulse({ technicalsAsOf: new Date() }), "Sunday, August 23, 2026")!;
+    expect(e.data.title).toContain("Market Pulse");
+    expect(e.data.description).toContain("Stretched: BTC RSI 80");
+    expect(e.data.description).toContain("Risk tone neutral.");
+    expect(e.data.footer?.text).toContain("Technicals from TradingView");
+  });
+
+  it("keeps the Yahoo-only footer when no technicals were attached", async () => {
+    const { buildPulseEmbed } = await import("../server/services/discord-bot.js");
+    const e = buildPulseEmbed(
+      pulse({ items: [{ label: "SPX", emoji: "📈", price: "7,674", changePct: -0.44 }] }),
+      "Sunday, August 23, 2026",
+    )!;
+    expect(e.data.footer?.text).toBe("Pre-Market Snapshot · Live data from Yahoo Finance");
+    expect(e.data.description).not.toContain("⚡");
+  });
+
+  it("labels stale technicals rather than passing them off as current", async () => {
+    const { buildPulseEmbed } = await import("../server/services/discord-bot.js");
+    const e = buildPulseEmbed(
+      pulse({ technicalsAsOf: new Date("2026-08-23T12:00:00Z"), technicalsStale: true }),
+      "Sunday, August 23, 2026",
+    )!;
+    expect(e.data.description).toContain("Technicals unavailable");
+  });
+
+  it("returns null when there is nothing to show", async () => {
+    const { buildPulseEmbed } = await import("../server/services/discord-bot.js");
+    expect(buildPulseEmbed(pulse({ items: [] }), "x")).toBeNull();
+  });
+});
+
+describe("buildCalendarEmbed", () => {
+  it("returns null when there are no events, so callers can skip it", async () => {
+    const { buildCalendarEmbed } = await import("../server/services/discord-bot.js");
+    expect(buildCalendarEmbed([])).toBeNull();
+  });
+
+  it("renders events grouped under a day heading", async () => {
+    const { buildCalendarEmbed } = await import("../server/services/discord-bot.js");
+    const e = buildCalendarEmbed([
+      { date: new Date().toISOString(), country: "USD", title: "Treasury Sec Speaks", impact: "High" } as any,
+    ])!;
+    expect(e.data.title).toContain("Economic Calendar");
+    expect(e.data.description).toContain("Treasury Sec Speaks");
+    expect(e.data.description).toContain("🔴");
+  });
+});
