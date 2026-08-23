@@ -8,8 +8,24 @@ import {
   BarChart3, Bot, Target, LineChart, Wrench, ExternalLink,
 } from "lucide-react";
 
-const DISCORD_INVITE = "https://discord.gg/h7qvbPjAV";
-const LAUNCH_DATE = new Date("2026-08-01T00:00:00-04:00");
+// Fallback only. The live value comes from DISCORD_INVITE_URL via
+// /api/settings/notifications-public — Discord invites expire, and rotating one
+// should be an env-var change, not a code change and redeploy.
+const DISCORD_INVITE_FALLBACK = "https://discord.gg/h7qvbPjAV";
+
+function useDiscordInvite(): string {
+  const { data } = useQuery<{ discordInvite: string | null }>({
+    queryKey: ["/api/settings/notifications-public"],
+    staleTime: 5 * 60 * 1000,
+  });
+  return data?.discordInvite || DISCORD_INVITE_FALLBACK;
+}
+// Public launch. Change this one value to move the countdown — the label and
+// the FAQ answer below both derive from it, so they cannot drift out of sync.
+const LAUNCH_DATE = new Date("2026-10-31T00:00:00-04:00");
+const LAUNCH_LABEL = LAUNCH_DATE.toLocaleDateString("en-US", {
+  month: "long", day: "numeric", year: "numeric", timeZone: "America/New_York",
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Countdown to public launch
@@ -48,7 +64,7 @@ function CountdownTimer() {
   return (
     <div>
       <p className="text-xs uppercase tracking-widest text-zinc-500 mb-3 text-center">
-        Public launch · August 1, 2026
+        Public launch · {LAUNCH_LABEL}
       </p>
       <div className="grid grid-cols-4 gap-2 sm:gap-3 max-w-md mx-auto">
         {cells.map(({ label, value }) => (
@@ -229,45 +245,73 @@ function SignalCardPreview() {
 // ─────────────────────────────────────────────────────────────────────────────
 //  Subscription tiers (live Discord product)
 // ─────────────────────────────────────────────────────────────────────────────
-const tiers = [
-  {
-    name: "Free Preview", price: "$0", period: "",
-    description: "See that signals are firing. No entry details.",
-    color: "border-zinc-700", badge: "",
-    features: ["Symbol + direction alerts", "#free-preview channel access", "No SL/TP details"],
-    cta: "Join Free", ctaStyle: "bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-600",
-  },
-  {
-    name: "Currency Signals", price: "$10", period: "/mo",
-    description: "Full Forex pair signals with entry, SL, and 3 take-profits.",
-    color: "border-sky-500/40", badge: "",
-    features: ["All Forex pairs (EUR/USD, GBP/JPY…)", "Entry, Stop Loss, TP1 / TP2 / TP3", "EMA, RSI, Renko & MTF data", "Morning market brief"],
-    cta: "Subscribe", ctaStyle: "bg-sky-600 hover:bg-sky-500 text-white",
-  },
-  {
-    name: "Metals Signals", price: "$10", period: "/mo",
-    description: "Gold, Silver and Platinum signals — full detail.",
-    color: "border-amber-500/40", badge: "",
-    features: ["XAUUSD, XAGUSD, XPTUSD", "Entry, Stop Loss, TP1 / TP2 / TP3", "EMA, RSI, Renko & MTF data", "Morning market brief"],
-    cta: "Subscribe", ctaStyle: "bg-amber-600 hover:bg-amber-500 text-white",
-  },
-  {
-    name: "Stocks Signals", price: "$20", period: "/mo",
-    description: "SPY, QQQ, mega-caps + major global indices.",
-    color: "border-violet-500/40", badge: "",
-    features: ["SPY, QQQ, AAPL, NVDA, TSLA, META & more", "US30, NAS100, SPX500, UK100, DE40", "Entry, Stop Loss, TP1 / TP2 / TP3", "Morning market brief"],
-    cta: "Subscribe", ctaStyle: "bg-violet-600 hover:bg-violet-500 text-white",
-  },
-  {
-    name: "All Signals", price: "$30", period: "/mo",
-    description: "Every signal we post — all four markets in one tier.",
-    color: "border-emerald-500", badge: "Best Value",
-    features: ["Forex + Metals + Stocks/Indices + Crypto", "Entry, Stop Loss, TP1 / TP2 / TP3", "Daily AI pre-market brief", "Live analysis + priority access"],
-    cta: "Best Deal →", ctaStyle: "bg-emerald-600 hover:bg-emerald-500 text-white font-bold",
-  },
-];
+// Two tiers: free preview, and one paid membership covering everything.
+// The paid price steps up at LAUNCH_DATE, so the page switches itself over on
+// October 31 rather than needing an edit and a deploy on the day.
+const FOUNDING_PRICE = 30;
+const LAUNCH_PRICE = 50;
+// Derived so the marketing claim can never contradict the actual prices.
+const SAVINGS_PCT = Math.round((1 - FOUNDING_PRICE / LAUNCH_PRICE) * 100);
 
-function TierCard({ tier }: { tier: typeof tiers[0] }) {
+// DIY TradingView tools are sold only as one bundle — Indicator, Strategy and
+// Settings Optimizer together. There is no per-script purchase, so there is no
+// price to compare against; the founding price simply steps up at launch, the
+// same way the membership does.
+const BUNDLE_FOUNDING_PRICE = 65;
+const BUNDLE_LAUNCH_PRICE = 100;
+const BUNDLE_TRIAL_DAYS = 7;
+
+function useBundlePrice() {
+  const { done } = useCountdown(LAUNCH_DATE);
+  return {
+    price: done ? BUNDLE_LAUNCH_PRICE : BUNDLE_FOUNDING_PRICE,
+    isFounding: !done,
+  };
+}
+
+function useMembershipPrice() {
+  const { done } = useCountdown(LAUNCH_DATE);
+  return {
+    price: done ? LAUNCH_PRICE : FOUNDING_PRICE,
+    isFounding: !done,
+  };
+}
+
+function useTiers() {
+  const { price, isFounding } = useMembershipPrice();
+  return [
+    {
+      name: "Free Preview", price: "$0", period: "",
+      description: "See that signals are firing. No entry details.",
+      color: "border-zinc-700", badge: "",
+      features: ["Symbol + direction alerts", "#free_preview channel access", "No SL/TP details"],
+      cta: "Join Free", ctaStyle: "bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-600",
+    },
+    {
+      name: "Full Membership", price: `$${price}`, period: "/mo",
+      description: isFounding
+        ? `Everything we post. Lock in $${FOUNDING_PRICE}/mo for life — the price goes to $${LAUNCH_PRICE} at launch.`
+        : "Everything we post — every market, every signal, one price.",
+      color: "border-emerald-500",
+      badge: isFounding ? "Founding Price" : "Best Value",
+      features: [
+        "Forex, Metals, Stocks/Indices & Crypto",
+        "Entry, Stop Loss, TP1 / TP2 / TP3",
+        "Daily AI pre-market brief",
+        "Smart Pullback screener results",
+        "Strategy settings for TradingView",
+        "Live analysis + priority access",
+      ],
+      cta: isFounding ? `Lock in $${FOUNDING_PRICE}/mo →` : "Subscribe →",
+      ctaStyle: "bg-emerald-600 hover:bg-emerald-500 text-white font-bold",
+    },
+  ];
+}
+
+type Tier = ReturnType<typeof useTiers>[number];
+
+function TierCard({ tier }: { tier: Tier }) {
+  const discordInvite = useDiscordInvite();
   return (
     <div className={`relative flex flex-col bg-zinc-900 border-2 ${tier.color} rounded-2xl p-6 transition-transform hover:-translate-y-1`}>
       {tier.badge && (
@@ -290,7 +334,7 @@ function TierCard({ tier }: { tier: typeof tiers[0] }) {
           </li>
         ))}
       </ul>
-      <a href={DISCORD_INVITE} target="_blank" rel="noreferrer"
+      <a href={discordInvite} target="_blank" rel="noreferrer"
         className={`w-full py-2.5 rounded-lg text-sm text-center block transition-colors ${tier.ctaStyle}`}>
         {tier.cta}
       </a>
@@ -328,6 +372,9 @@ function FaqItem({ q, a }: { q: string; a: string }) {
 //  Page
 // ─────────────────────────────────────────────────────────────────────────────
 export default function LandingPage() {
+  const discordInvite = useDiscordInvite();
+  const membershipTiers = useTiers();
+  const { price: bundlePrice, isFounding: bundleIsFounding } = useBundlePrice();
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       {/* NAV */}
@@ -344,7 +391,7 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-3">
             <a href="#pricing" className="hidden sm:block text-sm text-zinc-400 hover:text-white transition-colors">Pricing</a>
-            <a href={DISCORD_INVITE} target="_blank" rel="noreferrer"
+            <a href={discordInvite} target="_blank" rel="noreferrer"
               className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 transition-colors text-white text-sm font-semibold px-4 py-2 rounded-lg">
               Join Discord <ChevronRight className="w-4 h-4" />
             </a>
@@ -373,7 +420,7 @@ export default function LandingPage() {
               pre-validated by AI confluence scoring and delivered with full entry, SL, and three take-profit levels.
             </p>
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-6">
-              <a href={DISCORD_INVITE} target="_blank" rel="noreferrer"
+              <a href={discordInvite} target="_blank" rel="noreferrer"
                 className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 transition-colors text-white font-bold px-7 py-3.5 rounded-xl text-base shadow-lg shadow-emerald-500/20">
                 Join the Discord <ChevronRight className="w-5 h-5" />
               </a>
@@ -543,11 +590,11 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto">
           <SectionHeading
             eyebrow="Pricing"
-            title="Subscribe to your market."
-            sub="Pick one category or get everything. Cancel any time through Discord — payments handled securely by Discord Monetize."
+            title="One membership. Every market."
+            sub="Start free, upgrade when you want the entries. Cancel any time through Discord — payments handled securely by Discord Monetize."
           />
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {tiers.map(tier => <TierCard key={tier.name} tier={tier} />)}
+          <div className="grid sm:grid-cols-2 gap-6 max-w-3xl mx-auto">
+            {membershipTiers.map(tier => <TierCard key={tier.name} tier={tier} />)}
           </div>
         </div>
       </section>
@@ -557,8 +604,8 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto">
           <SectionHeading
             eyebrow="DIY Option"
-            title="Prefer to run it yourself? Get the Indicator or the Strategy."
-            sub="The same proprietary edge that powers our signals — usable on your own TradingView charts. Indicator for manual trading, Strategy for automation + backtesting."
+            title="Prefer to run it yourself? Get the toolkit."
+            sub="The same proprietary edge that powers our signals, on your own TradingView charts. Indicator for manual trading, Strategy for automation and backtesting, and the Settings Optimizer to tune it — sold together as one bundle."
           />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 hover:border-emerald-500/30 transition-colors">
@@ -579,19 +626,9 @@ export default function LandingPage() {
                   <li key={f} className="flex gap-2"><Check className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" /> {f}</li>
                 ))}
               </ul>
-              <div className="flex items-end gap-2">
-                <div>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-extrabold text-white">$25</span>
-                    <span className="text-zinc-500 text-xs">/mo</span>
-                    <span className="text-zinc-500 text-xs line-through">$50</span>
-                  </div>
-                  <p className="text-[10px] text-emerald-400 font-semibold uppercase tracking-wider mt-0.5">50% off · pre-launch</p>
-                </div>
-                <a href="#signup" className="ml-auto inline-flex items-center gap-1 text-emerald-400 font-semibold text-xs hover:text-emerald-300">
-                  Request access <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
+              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-emerald-400">
+                <Check className="h-3.5 w-3.5" /> Included in the bundle
+              </p>
             </div>
 
             <div className="relative bg-gradient-to-br from-emerald-500/10 to-teal-500/10 border-2 border-emerald-500/40 rounded-2xl p-6 hover:border-emerald-500/60 transition-colors">
@@ -611,29 +648,90 @@ export default function LandingPage() {
                 The same engine as a Pine Strategy. Run full equity-curve backtests, see win-rate / drawdown / PF, and connect to your broker for hands-free execution.
               </p>
               <ul className="space-y-1.5 text-xs text-zinc-400 mb-5">
-                {["Full TradingView Strategy Tester report", "Configurable position sizing & partial TPs", "Auto-trade via PineConnector / 3Commas", "Session & confluence filters built-in"].map(f => (
+                {["Full TradingView Strategy Tester report", "Configurable position sizing & partial TPs", "Auto-trade via PineConnector / 3Commas", "Session & confluence filters built-in", "Settings Optimizer included in the bundle below"].map(f => (
                   <li key={f} className="flex gap-2"><Check className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" /> {f}</li>
                 ))}
               </ul>
-              <div className="flex items-end gap-2">
-                <div>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-extrabold text-white">$50</span>
-                    <span className="text-zinc-500 text-xs">/mo</span>
-                    <span className="text-zinc-500 text-xs line-through">$100</span>
+              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-teal-400">
+                <Check className="h-3.5 w-3.5" /> Included in the bundle
+              </p>
+            </div>
+          </div>
+
+          {/* BUNDLE — Indicator + Strategy + Settings Optimizer */}
+          <div className="relative mt-6 rounded-2xl border-2 border-amber-500/50 bg-gradient-to-br from-amber-500/10 via-zinc-900 to-emerald-500/10 p-6 sm:p-8">
+            <div className="absolute -top-3 left-6 rounded bg-amber-500 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-950">
+              Complete Toolkit
+            </div>
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-center">
+              <div className="flex-1">
+                <div className="mb-3 flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/15">
+                    <Wrench className="h-5 w-5 text-amber-400" />
                   </div>
-                  <p className="text-[10px] text-emerald-400 font-semibold uppercase tracking-wider mt-0.5">50% off · pre-launch</p>
+                  <div>
+                    <h3 className="text-xl font-bold">Indicator + Strategy Bundle</h3>
+                    <p className="text-xs text-zinc-500">Both scripts, plus the Settings Optimizer</p>
+                  </div>
                 </div>
-                <a href="#signup" className="ml-auto inline-flex items-center gap-1 text-teal-400 font-semibold text-xs hover:text-teal-300">
-                  Request access <ExternalLink className="w-3 h-3" />
+                <p className="mb-4 max-w-2xl text-sm leading-relaxed text-zinc-300">
+                  Everything above in one subscription — and the piece you can't buy separately. The{" "}
+                  <strong className="text-amber-300">Settings Optimizer</strong> sweeps the Strategy's parameters
+                  across any symbol and timeframe, then reports the configurations that actually hold up: profit
+                  factor, win rate, drawdown and trade count for each, measured per round trip. Stop guessing at
+                  inputs and run the settings the data supports.
+                </p>
+                <ul className="grid gap-1.5 text-xs text-zinc-400 sm:grid-cols-2">
+                  {[
+                    "Everything in the Indicator",
+                    "Everything in the Strategy",
+                    "Settings Optimizer — parameter sweeps per symbol",
+                    "Settings Library of ready-tuned configurations",
+                    "Copy-paste checklists matching the Pine inputs",
+                    "New configurations added as they are validated",
+                  ].map(f => (
+                    <li key={f} className="flex gap-2">
+                      <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" /> {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="w-full shrink-0 rounded-xl border border-zinc-800 bg-zinc-950/60 p-5 lg:w-64">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-extrabold text-white">${bundlePrice}</span>
+                  <span className="text-xs text-zinc-500">/mo</span>
+                  {bundleIsFounding && (
+                    <span className="text-xs text-zinc-500 line-through">${BUNDLE_LAUNCH_PRICE}</span>
+                  )}
+                </div>
+                <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-amber-400">
+                  {BUNDLE_TRIAL_DAYS}-day free trial
+                </p>
+                {bundleIsFounding && (
+                  <p className="mt-1.5 text-[10px] leading-relaxed text-emerald-400">
+                    Founding price — goes to ${BUNDLE_LAUNCH_PRICE}/mo at launch.
+                  </p>
+                )}
+                <a
+                  href="#signup"
+                  className="mt-4 block w-full rounded-lg bg-amber-500 py-2.5 text-center text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400"
+                >
+                  Start {BUNDLE_TRIAL_DAYS}-day trial
                 </a>
+                <p className="mt-2 text-center text-[10px] leading-relaxed text-zinc-500">
+                  Cancel any time during the trial and you are not charged.
+                </p>
               </div>
             </div>
           </div>
           <div className="mt-6 bg-zinc-900/50 border border-zinc-800 rounded-xl p-4 text-center">
             <p className="text-xs text-zinc-400">
-              <strong className="text-zinc-200">Not sure which?</strong> Pick the <span className="text-emerald-400 font-semibold">Indicator</span> for manual trading with chart visuals + alerts,
-              the <span className="text-teal-400 font-semibold">Strategy</span> for backtests + automation, or just <span className="text-emerald-400 font-semibold">subscribe to Signals</span> in Discord and let us do the heavy lifting.
+              <strong className="text-zinc-200">Not sure which?</strong> Take the{" "}
+              <span className="text-amber-400 font-semibold">bundle</span> if you want to run the system on your own
+              charts and tune it yourself — the {BUNDLE_TRIAL_DAYS}-day trial costs nothing to find out. Take the{" "}
+              <span className="text-emerald-400 font-semibold">${FOUNDING_PRICE}/mo membership</span> if you would
+              rather we call the trades for you in Discord. Plenty of people run both.
             </p>
           </div>
         </div>
@@ -650,7 +748,9 @@ export default function LandingPage() {
             Join the Discord now, or reserve founding-member pricing.
           </h2>
           <p className="text-zinc-400 text-base mb-8">
-            Signals are already live in Discord. Not ready yet? Drop your email to lock in <strong className="text-emerald-400">50% off for life</strong> — only the first 100 founding members.
+            Signals are already live in Discord. Not ready yet? Drop your email to lock in{" "}
+            <strong className="text-emerald-400">${FOUNDING_PRICE}/mo for life</strong> — {SAVINGS_PCT}% below the
+            ${LAUNCH_PRICE} launch price, for the first 100 founding members only.
           </p>
           <div className="max-w-md mx-auto">
             <div className="mb-4 bg-zinc-900/60 border border-zinc-800 rounded-lg p-3">
@@ -658,7 +758,7 @@ export default function LandingPage() {
             </div>
             <SignupForm source="landing-bottom" />
             <div className="mt-4">
-              <a href={DISCORD_INVITE} target="_blank" rel="noreferrer"
+              <a href={discordInvite} target="_blank" rel="noreferrer"
                 className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-400 hover:text-emerald-300">
                 …or skip the wait and join Discord now <ChevronRight className="w-4 h-4" />
               </a>
@@ -677,12 +777,15 @@ export default function LandingPage() {
           <SectionHeading eyebrow="FAQ" title="Common questions" />
           <div>
             {[
-              { q: "Do I need a TradingView subscription?", a: "No. You receive the signals in Discord. TradingView is only required if you also want to run the Indicator or Strategy on your own charts." },
+              { q: "Do I need a TradingView subscription?", a: "No. You receive the signals in Discord. TradingView is only required if you also take the bundle and want to run the scripts on your own charts." },
+              { q: "What is the Settings Optimizer?", a: `It sweeps the Strategy's parameters across a symbol and timeframe and reports which configurations hold up — profit factor, win rate, drawdown and trade count for each, measured per round trip rather than per fill. It comes with the bundle and is not sold separately, and the bundle includes a ${BUNDLE_TRIAL_DAYS}-day free trial.` },
+              { q: "Membership or the TradingView tools — which do I want?", a: `The $${FOUNDING_PRICE}/mo membership is for people who want the trades called for them in Discord. The bundle is for people who want to run the system on their own charts and tune it themselves. They are separate products; plenty of members take both.` },
               { q: "How are these signals different?", a: "Every signal carries entry + SL + 3 scaled TPs and is AI-validated against news sentiment and multi-timeframe trend before posting. You see the confluence score on every alert." },
-              { q: "Can I cancel anytime?", a: "Yes — all tiers are month-to-month via Discord Monetize. Cancel from your Discord subscriptions page whenever you like." },
-              { q: "Do I just get signals, or analysis too?", a: "Both. Paid tiers include live trade analysis inside Discord — chart breakdowns, daily recaps, and post-trade reviews so you learn the why behind each setup." },
+              { q: "Can I cancel anytime?", a: "Yes — the membership is month-to-month via Discord Monetize. Cancel from your Discord subscriptions page whenever you like." },
+              { q: "Do I just get signals, or analysis too?", a: "Both. Membership includes live trade analysis inside Discord — chart breakdowns, daily recaps, and post-trade reviews so you learn the why behind each setup." },
               { q: "What if signals don't perform?", a: "We post the full record — wins and losses both visible. The strategy is backtested across multiple timeframes and live-tracked in the dashboard." },
-              { q: "When is the public launch?", a: "Signals are already live for members. Public launch and full pricing take effect August 1, 2026 — founding members lock in 50% off for life before then." },
+              { q: "When is the public launch?", a: `Signals are already live for members. On ${LAUNCH_LABEL} the membership goes from $${FOUNDING_PRICE}/mo to $${LAUNCH_PRICE}/mo — anyone who joins before then keeps $${FOUNDING_PRICE}/mo for life.` },
+              { q: "What do I actually get for the membership?", a: `One price covers everything: Forex, Metals, Stocks/Indices and Crypto signals with entry, stop loss and three take-profits, plus the daily AI pre-market brief, the Smart Pullback screener results, and the tuned TradingView strategy settings. The free preview shows symbol and direction only, with no entry details.` },
             ].map(f => <FaqItem key={f.q} {...f} />)}
           </div>
         </div>
