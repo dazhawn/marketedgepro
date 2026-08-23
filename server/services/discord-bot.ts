@@ -284,6 +284,31 @@ export async function postBriefFailureViaBot(reason: string): Promise<boolean> {
   return false;
 }
 
+/**
+ * One-line technicals callout for the Market Pulse embed, or "" when nothing
+ * is at an extreme.
+ *
+ * Only instruments at an RSI extreme appear. Annotating all ten would print
+ * "Buy" beside most of them, which is noise — the point is to surface the two
+ * or three worth a second look. Bands are the conventional 30/70, matching
+ * Smart Investor's own oversold threshold rather than a number picked to make
+ * a particular day look interesting.
+ *
+ * Instruments without technicals (TVC:US10Y has none) are skipped, as is the
+ * whole line when TradingView was unreachable.
+ */
+export function pulseHighlightLine(items: MarketPulse["items"]): string {
+  const stretched = items.filter(i => i.rsi != null && i.rsi >= 70);
+  const oversold = items.filter(i => i.rsi != null && i.rsi <= 30);
+  const fmt = (list: typeof items) =>
+    list.map(i => `${i.label} RSI ${i.rsi!.toFixed(0)}`).join(" · ");
+
+  const parts: string[] = [];
+  if (stretched.length) parts.push(`Stretched: ${fmt(stretched)}`);
+  if (oversold.length) parts.push(`Oversold: ${fmt(oversold)}`);
+  return parts.length ? `⚡ ${parts.join("   |   ")}` : "";
+}
+
 export async function postMorningBriefViaBot(
   symbols: SymbolBriefData[],
   calendarEvents: CalendarEventData[] = [],
@@ -319,11 +344,28 @@ export async function postMorningBriefViaBot(
       };
       rows.push(b ? `${fmtItem(a)}  •  ${fmtItem(b)}` : fmtItem(a));
     }
+
+    const line = pulseHighlightLine(pulse.items);
+    const highlight = line ? `\n\n${line}` : "";
+
+    // Ratings are decorative, so serving stale ones is fine — passing them off
+    // as current is not. Say so when it happens.
+    const staleNote = pulse.technicalsStale && pulse.technicalsAsOf
+      ? `\n\n⚠️ *Technicals unavailable — showing values from ${pulse.technicalsAsOf.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit" })} ET.*`
+      : "";
+
+    const footer = pulse.technicalsAsOf
+      ? "Pre-Market Snapshot · Prices from Yahoo Finance · Technicals from TradingView"
+      : "Pre-Market Snapshot · Live data from Yahoo Finance";
+
     const pulseEmbed = new EmbedBuilder()
       .setTitle(`🌅 Market Pulse — ${now}`)
-      .setDescription(rows.join("\n") + (pulse.narrative ? `\n\n📝 *${pulse.narrative}*` : ""))
+      .setDescription(
+        rows.join("\n") + highlight + staleNote +
+        (pulse.narrative ? `\n\n📝 *${pulse.narrative}*` : "")
+      )
       .setColor(0x0ea5e9)
-      .setFooter({ text: "Pre-Market Snapshot · Live data from Yahoo Finance" });
+      .setFooter({ text: footer });
     embeds.push(pulseEmbed);
   }
 

@@ -104,3 +104,40 @@ describe("buildMarketPulse", () => {
     expect(scannerCalls).toHaveLength(1);
   });
 });
+
+describe("pulseHighlightLine", () => {
+  const item = (label: string, rsi?: number) => ({
+    label, price: "1", changePct: 0, ...(rsi === undefined ? {} : { rsi }),
+  });
+
+  it("calls out stretched and oversold instruments, and nothing else", async () => {
+    const { pulseHighlightLine } = await import("../server/services/discord-bot.js");
+    const line = pulseHighlightLine([
+      item("SPX", 53.9), item("BTC", 75.9), item("GOLD", 70.2),
+      item("DXY", 28.4), item("VIX", 46.0),
+    ]);
+    expect(line).toContain("Stretched: BTC RSI 76 · GOLD RSI 70");
+    expect(line).toContain("Oversold: DXY RSI 28");
+    expect(line).not.toContain("SPX");
+    expect(line).not.toContain("VIX");
+  });
+
+  it("returns empty when nothing is at an extreme", async () => {
+    const { pulseHighlightLine } = await import("../server/services/discord-bot.js");
+    expect(pulseHighlightLine([item("SPX", 53.9), item("VIX", 46)])).toBe("");
+  });
+
+  it("returns empty when no instrument has technicals at all", async () => {
+    const { pulseHighlightLine } = await import("../server/services/discord-bot.js");
+    // The TradingView-unreachable case: every item priced, none with an RSI.
+    expect(pulseHighlightLine([item("SPX"), item("US10Y")])).toBe("");
+  });
+
+  it("treats the band edges as inclusive", async () => {
+    const { pulseHighlightLine } = await import("../server/services/discord-bot.js");
+    expect(pulseHighlightLine([item("A", 70)])).toContain("Stretched");
+    expect(pulseHighlightLine([item("B", 30)])).toContain("Oversold");
+    // 30.6 — today's DXY — sits just outside the band and must not appear.
+    expect(pulseHighlightLine([item("C", 30.6)])).toBe("");
+  });
+});
