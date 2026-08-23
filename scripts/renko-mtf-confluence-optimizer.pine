@@ -1,0 +1,1278 @@
+//@version=6
+// ══════════════════════════════════════════════════════════════════════════════
+//  Renko + MTF Confluence  STRATEGY  (Backtest)
+//  Based on the indicator version. Adds:
+//   - Configurable entry trigger (Mtrend flip / Pullback / Both)
+//   - Configurable MTF confluence threshold (1-4 of 4)
+//   - Hard SL + TP1 / TP2 / TP3 partial closes (% or ATR)
+//   - Opposite mtrend flip exit (whichever triggers first)
+//   - Real strategy.* backtest stats in the dashboard
+//   - MarketEdgePro webhook alerts: JSON alert() on every confluence entry AND
+//     every trend flip (marked unconfirmed when the MTF vote blocked the entry),
+//     carrying action, price, SL, TP1-3, Renko trend, MTF arrows, vote count.
+//     Create ONE alert with condition "alert() function calls only" and set the
+//     webhook URL to .../api/signals/webhook?secret=YOUR_SESSION_SECRET
+// ══════════════════════════════════════════════════════════════════════════════
+strategy("Renko + MTF Confluence Strategy [Optimizer Export]", shorttitle="Renko Strat OPT",
+     overlay=true, max_bars_back=4900,
+     default_qty_type=strategy.percent_of_equity, default_qty_value=100,
+     initial_capital=10000, commission_type=strategy.commission.percent,
+     commission_value=0.05, slippage=2, pyramiding=0,
+     process_orders_on_close=true, calc_on_every_tick=false)
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  INPUTS — Renko
+// ══════════════════════════════════════════════════════════════════════════════
+var string G1 = "🧱 Renko Settings"
+mode         = input.string("ATR",      "Method",              options=["Traditional","ATR"],                                                         group=G1)
+modevalue    = input.int(14,            "[ATR] ATR Period",    minval=1,                                                                              group=G1)
+boxsize      = input.float(10.0,        "[Traditional] Brick Size", minval=0.000000000000001,                                                         group=G1)
+src_input    = input.string("hl",       "Source",              options=["close","hl"],                                                                group=G1)
+showstyle    = input.string("Area",     "Chart Style",         options=["Candle","Area","Dont Show"],                                                 group=G1)
+brcol_inp    = input.string("Blue/Red", "Color Theme",         options=["Green/Red","Yellow/Blue","White/Yellow","Orange/Blue","Lime/Red","Blue/Red"], group=G1)
+changebarcol = input.bool(true,         "Change Bar Colors",                                                                                          group=G1)
+
+// ── Trend ─────────────────────────────────────────────────────────────────────
+var string G3 = "🔀 Trend"
+showtrend    = input.bool(true,  "Show Trend",                                  group=G3)
+showtrhold   = input.bool(true,  "Show Threshold Band",                         group=G3)
+tremalen     = input.int(34,     "Trend EMA Length",        minval=1,           group=G3)
+barcountwhip = input.int(3,      "Wait # Bars for Reversal", minval=0,          group=G3)
+thsreversal  = input.float(3.0,  "Trend Threshold",         minval=0, step=0.1, group=G3)
+thsreversal2 = input.float(1.5,  "Reversal Threshold",      minval=0, step=0.1, group=G3)
+
+// ── TP / SL Levels ────────────────────────────────────────────────────────────
+var string G5 = "🎯 TP / SL Levels  (drawn on mtrend change, removed when hit)"
+showLevels   = input.bool(true,  "Show TP / SL Levels",                         group=G5)
+showLvlLabel = input.bool(true,  "Show Entry Label",                            group=G5)
+lvlType      = input.string("Percent", "Level Type", options=["ATR","Percent","Trend Flip Anchor"], group=G5,
+     tooltip="ATR = distance is ATR × multiplier.\nPercent = distance is entry price × %.\nTrend Flip Anchor = SL at the swing extreme of the prior trend.")
+atrLvlLen    = input.int(14,     "ATR Length",           minval=1,              group=G5)
+slAtrMult    = input.float(1.5,  "SL  ATR Mult",  minval=0.1, step=0.1,        group=G5, inline="sl")
+tp1AtrMult   = input.float(2.0,  "TP1 ATR Mult",  minval=0.1, step=0.1,        group=G5, inline="tp1")
+tp2AtrMult   = input.float(3.0,  "TP2 ATR Mult",  minval=0.1, step=0.1,        group=G5, inline="tp2")
+tp3AtrMult   = input.float(4.0,  "TP3 ATR Mult",  minval=0.1, step=0.1,        group=G5, inline="tp3")
+slPct        = input.float(3.0,  "SL  %",         minval=0.01, step=0.1,       group=G5, inline="sl")
+tp1Pct       = input.float(2.0,  "TP1 %",         minval=0.01, step=0.1,       group=G5, inline="tp1")
+tp2Pct       = input.float(3.0,  "TP2 %",         minval=0.01, step=0.1,       group=G5, inline="tp2")
+tp3Pct       = input.float(4.0,  "TP3 %",         minval=0.01, step=0.1,       group=G5, inline="tp3")
+tp1RR        = input.float(1.0,  "TP1 R:R",       minval=0.1, step=0.1,        group=G5, inline="rr1")
+tp2RR        = input.float(2.0,  "TP2 R:R",       minval=0.1, step=0.1,        group=G5, inline="rr2")
+tp3RR        = input.float(3.0,  "TP3 R:R",       minval=0.1, step=0.1,        group=G5, inline="rr3")
+
+// ── Trailing SL ───────────────────────────────────────────────────────────────
+useTrailSL   = input.bool(false, "Enable Trailing SL (ATR Chandelier)",        group=G5)
+trailAtrLen  = input.int(14,     "Trail ATR Length",     minval=1,              group=G5)
+trailAtrMult = input.float(3.0,  "Trail ATR Multiplier", minval=0.1, step=0.1,  group=G5)
+colTrail     = input.color(color.new(color.white, 0), "Trail SL Color",         group=G5, inline="ctrail")
+pbRatchetSL  = input.bool(false, "Pullback ratchets SL toward Trail",           group=G5)
+colSL        = input.color(color.new(color.red,    0), "SL  Color",             group=G5, inline="csl")
+colTP1       = input.color(color.new(color.teal,   0), "TP1 Color",             group=G5, inline="ctp1")
+colTP2       = input.color(color.new(color.lime,   0), "TP2 Color",             group=G5, inline="ctp2")
+colTP3       = input.color(color.new(color.yellow, 0), "TP3 Color",             group=G5, inline="ctp3")
+
+// ── Strategy Rules ────────────────────────────────────────────────────────────
+var string GS = "🤖 Strategy Rules"
+entryMode    = input.string("Both", "Entry Trigger", options=["Mtrend flip","Pullback","Both"], group=GS)
+minVotes     = input.int(3, "MTF Confluence Threshold (of 4)", minval=1, maxval=4, group=GS)
+useChartTF   = input.bool(true,  "Include Chart TF in confluence vote", group=GS)
+exitOpposite = input.bool(true,  "Exit on opposite mtrend flip", group=GS)
+allowReverse = input.bool(true,  "Auto-reverse on opposite flip", group=GS)
+
+// ── Partial TP Sizing ─────────────────────────────────────────────────────────
+var string GZ = "📦 Partial TP Sizing"
+tp1QtyPct = input.float(33.0, "TP1 Close % of position", minval=1, maxval=100, step=1, group=GZ)
+tp2QtyPct = input.float(33.0, "TP2 Close % of position", minval=1, maxval=100, step=1, group=GZ)
+tp3QtyPct = input.float(34.0, "TP3 Close % of position", minval=1, maxval=100, step=1, group=GZ)
+
+// ── Webhook Alerts ────────────────────────────────────────────────────────────
+var string GW = "📡 Webhook Alerts (MarketEdgePro)"
+sendEntryAlerts = input.bool(true,  "Send confluence entry alerts (BUY/SELL + SL/TP)", group=GW)
+sendFlipAlerts  = input.bool(true,  "Send every trend flip with SL/TP (even without confluence)", group=GW)
+autoAnalyze     = input.bool(false, "Request AI confluence analysis per signal", group=GW,
+     tooltip="Adds autoAnalyze:true to the webhook payload. Each analysis consumes Anthropic API credit on the server.")
+
+// ── Dashboard Customization ───────────────────────────────────────────────────
+var string GDC = "🎛 Dashboard Customization"
+showDashPos       = input.bool(true,  "Position",             group=GDC, inline="dc1")
+showDashWR        = input.bool(true,  "Win Rate",             group=GDC, inline="dc1")
+showDashPF        = input.bool(true,  "Profit Factor",        group=GDC, inline="dc1")
+showDashNet       = input.bool(true,  "Net P&L",              group=GDC, inline="dc2")
+showDashDD        = input.bool(true,  "Max Drawdown",         group=GDC, inline="dc2")
+showDashLS        = input.bool(true,  "Long/Short WR",        group=GDC, inline="dc2")
+showDashRenko     = input.bool(true,  "Renko Brick",          group=GDC, inline="dc3")
+showDashMTF       = input.bool(true,  "MTF Tiles",            group=GDC, inline="dc3")
+showDashConf      = input.bool(true,  "Confluence",           group=GDC, inline="dc3")
+showDashSes       = input.bool(true,  "Sessions",             group=GDC, inline="dc4")
+showDashTrades    = input.bool(true,  "Trades / Wins",        group=GDC, inline="dc4")
+showDashRR        = input.bool(false, "R:R / Expect",         group=GDC, inline="dc4")
+showDashBreakdown = input.bool(true,  "Flip vs PB Breakdown", group=GDC, inline="dc5")
+
+// ── Best-TF Advisor ───────────────────────────────────────────────────────────
+var string GBT = "🧠 Best-TF Advisor"
+useTFAdvisor = input.bool(false, "Enable Best-TF Advisor", group=GBT)
+tfScoreMode  = input.string("PF × WR ÷ DD", "Scoring Formula",
+     options=["PF × WR ÷ DD","Highest PF","Highest WR","Lowest DD","Highest Net %"], group=GBT)
+
+// ── MTF Comparison ────────────────────────────────────────────────────────────
+var string G4 = "⏱ MTF Comparison  (alerts + dashboard, chart unchanged)"
+tfA      = input.timeframe("5",   "Timeframe A", group=G4)
+tfB      = input.timeframe("60",  "Timeframe B", group=G4)
+tfC      = input.timeframe("240", "Timeframe C", group=G4)
+tfD      = input.timeframe("D",   "Timeframe D", group=G4)
+dashMode = input.string("Compact Bar", "Dashboard", options=["Off","Mini","Full","Compact Bar","Full Bar"], group=G4)
+dashPos  = input.string("Bottom Left", "Dashboard Position", options=["Top Right","Top Left","Bottom Right","Bottom Left"], group=G4)
+dashAlpha = input.int(15, "Dashboard Opacity (0=solid, 100=transparent)", minval=0, maxval=100, group=G4)
+alertOnA  = input.bool(true, "Alert on TF A Main Trend Change", group=G4)
+alertOnB  = input.bool(true, "Alert on TF B Main Trend Change", group=G4)
+alertOnC  = input.bool(true, "Alert on TF C Main Trend Change", group=G4)
+alertOnD  = input.bool(true, "Alert on TF D Main Trend Change", group=G4)
+showTslA  = input.bool(false, "Show TF A Trend Line on Chart",  group=G4, inline="tslA")
+colTslA   = input.color(color.new(#00bcd4, 0), "",              group=G4, inline="tslA")
+showTslB  = input.bool(false, "Show TF B Trend Line on Chart",  group=G4, inline="tslB")
+colTslB   = input.color(color.new(#ff9800, 0), "",              group=G4, inline="tslB")
+showTslC  = input.bool(false, "Show TF C Trend Line on Chart",  group=G4, inline="tslC")
+colTslC   = input.color(color.new(#e040fb, 0), "",              group=G4, inline="tslC")
+showTslD  = input.bool(false, "Show TF D Trend Line on Chart",  group=G4, inline="tslD")
+colTslD   = input.color(color.new(#ffeb3b, 0), "",              group=G4, inline="tslD")
+
+// ── Trading Sessions ──────────────────────────────────────────────────────────
+var string G7 = "🌐 Trading Sessions  (dashboard + optional filter)"
+useSessionFilter = input.bool(false, "Filter trades by active sessions", group=G7)
+useSydney = input.bool(false, "Sydney    (17:00–02:00 ET)", group=G7)
+useAsia   = input.bool(false, "Asian     (19:00–04:00 ET)", group=G7)
+useLondon = input.bool(true,  "London    (03:00–12:00 ET)", group=G7)
+useUS     = input.bool(true,  "US        (08:00–17:00 ET)", group=G7)
+useCustom = input.bool(false, "Custom Hours",               group=G7, inline="cust")
+customSes = input.session("0800-1600", "",                  group=G7, inline="cust")
+sesTZ     = input.string("America/New_York", "Session Timezone",
+     options=["America/New_York","America/Chicago","America/Denver","America/Los_Angeles","Europe/London","Europe/Berlin","Asia/Tokyo","Asia/Singapore","Australia/Sydney","UTC"], group=G7)
+
+// ── Pullback Detection ────────────────────────────────────────────────────────
+var string G6 = "🎯 Pullback Alerts  (within active main trend)"
+showPB     = input.bool(true,  "Show Pullback Markers on Chart", group=G6)
+pbMode     = input.string("Tsl touch", "Pullback Detection Mode", options=["Brick disagree","Tsl touch","Both"], group=G6)
+pbAtrMult  = input.float(0.25, "Tsl Touch Sensitivity (× ATR)", minval=0.0, step=0.05, group=G6)
+pbCooldown = input.int(25, "Cooldown Bars Between Alerts", minval=0, group=G6)
+colPBBull  = input.color(color.new(color.lime, 0), "Bullish Pullback Marker", group=G6, inline="pbcol")
+colPBBear  = input.color(color.new(color.red,  0), "Bearish Pullback Marker", group=G6, inline="pbcol")
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  RENKO ENGINE
+// ══════════════════════════════════════════════════════════════════════════════
+conv_atr(float valu) =>
+    int   a   = 0
+    float num = syminfo.mintick
+    float s   = na(valu) ? syminfo.mintick : valu
+    if num < 1
+        for i = 1 to 20
+            num *= 10
+            if num > 1
+                break
+            a += 1
+    for x = 1 to a
+        s *= 10
+    s := math.round(s)
+    for x = 1 to a
+        s /= 10
+    s < syminfo.mintick ? syminfo.mintick : s
+
+float atrboxsize = conv_atr(ta.atr(modevalue))
+int   reversal   = 2
+
+var float box         = na
+var int   trend       = 0
+var float beginprice  = na
+var float iopenprice  = 0.0
+var float icloseprice = 0.0
+
+box        := na(box[1]) ? (mode == "ATR" ? atrboxsize : boxsize) : box[1]
+beginprice := barstate.isfirst ? math.floor(open / box) * box : nz(beginprice[1])
+
+float currentprice = src_input == "close" ? close : trend == 1 ? high : low
+
+if trend == 0 and box * reversal <= math.abs(beginprice - currentprice)
+    if beginprice > currentprice
+        float nc = math.floor(math.abs(beginprice - currentprice) / box)
+        iopenprice  := beginprice
+        icloseprice := beginprice - nc * box
+        trend       := -1
+    if beginprice < currentprice
+        float nc = math.floor(math.abs(beginprice - currentprice) / box)
+        iopenprice  := beginprice
+        icloseprice := beginprice + nc * box
+        trend       := 1
+
+if trend == -1
+    bool nok = true
+    if beginprice > currentprice and box <= math.abs(beginprice - currentprice)
+        float nc    = math.floor(math.abs(beginprice - currentprice) / box)
+        icloseprice := beginprice - nc * box
+        trend       := -1
+        beginprice  := icloseprice
+        nok         := false
+    else
+        iopenprice  := iopenprice  == 0 ? nz(iopenprice[1])  : iopenprice
+        icloseprice := icloseprice == 0 ? nz(icloseprice[1]) : icloseprice
+    float tcp = src_input == "close" ? close : high
+    if beginprice < tcp and box * reversal <= math.abs(beginprice - tcp) and nok
+        float nc    = math.floor(math.abs(beginprice - tcp) / box)
+        iopenprice  := beginprice + box
+        icloseprice := beginprice + nc * box
+        trend       := 1
+        beginprice  := icloseprice
+    else
+        iopenprice  := iopenprice  == 0 ? nz(iopenprice[1])  : iopenprice
+        icloseprice := icloseprice == 0 ? nz(icloseprice[1]) : icloseprice
+else
+    if trend == 1
+        bool nok = true
+        if beginprice < currentprice and box <= math.abs(beginprice - currentprice)
+            float nc    = math.floor(math.abs(beginprice - currentprice) / box)
+            icloseprice := beginprice + nc * box
+            trend       := 1
+            beginprice  := icloseprice
+            nok         := false
+        else
+            iopenprice  := iopenprice  == 0 ? nz(iopenprice[1])  : iopenprice
+            icloseprice := icloseprice == 0 ? nz(icloseprice[1]) : icloseprice
+        float tcp = src_input == "close" ? close : low
+        if beginprice > tcp and box * reversal <= math.abs(beginprice - tcp) and nok
+            float nc    = math.floor(math.abs(beginprice - tcp) / box)
+            iopenprice  := beginprice - box
+            icloseprice := beginprice - nc * box
+            trend       := -1
+            beginprice  := icloseprice
+        else
+            iopenprice  := iopenprice  == 0 ? nz(iopenprice[1])  : iopenprice
+            icloseprice := icloseprice == 0 ? nz(icloseprice[1]) : icloseprice
+
+box := ta.change(icloseprice) != 0 ? (mode == "ATR" ? atrboxsize : boxsize) : box
+
+float oprice = trend ==  1 ? (nz(trend[1]) ==  1 ? nz(icloseprice[1]) - nz(box[1]) : nz(icloseprice[1]) + nz(box[1])) :
+               trend == -1 ? (nz(trend[1]) == -1 ? nz(icloseprice[1]) + nz(box[1]) : nz(icloseprice[1]) - nz(box[1])) :
+               nz(icloseprice[1])
+oprice := math.max(oprice, 0)
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  TREND ENGINE
+// ══════════════════════════════════════════════════════════════════════════════
+var int   trcnt1  = 0
+var int   countch = 0
+var bool  trch    = false
+var float obox    = na
+
+trcnt1  := ta.change(icloseprice) != 0 ? 1 : math.min(nz(trcnt1[1]) + 1, 4000)
+countch := ta.change(icloseprice) != 0 ? nz(countch[1]) + 1 : nz(countch[1])
+trch    := ta.change(trend) != 0 and ta.change(icloseprice) != 0 ? true :
+           ta.change(trend) == 0 and ta.change(icloseprice) != 0 ? false : trch
+obox    := ta.change(icloseprice) != 0 ? nz(box[1]) : nz(obox[1])
+
+mysma(float ser, int len) =>
+    float sum = ser
+    int   nn  = 1
+    if len > 1
+        for i = 0 to 4000
+            if ser[i] == 0 or ser[i + 1] == 0
+                break
+            if ser[i] != ser[i + 1]
+                nn  += 1
+                sum += ser[i + 1]
+                if nn == len
+                    break
+    nn == len ? sum / len : na
+
+myema(float ser, int len, int trcnt, float obox_val) =>
+    float em = na
+    max_bars_back(em, 4000)
+    if countch <= len
+        em := mysma(ser, len)
+    if countch > len and not na(ser[trcnt]) and ser != nz(ser[trcnt])
+        float alpha = 2.0 / (len + 1)
+        int   bb    = ser > nz(ser[trcnt]) ? 1 : -1
+        int   kats  = trch ? reversal : 1
+        float st    = nz(ser[trcnt]) + bb * obox_val * kats
+        em          := alpha * st + (1.0 - alpha) * nz(em[trcnt])
+        st          += bb * obox_val
+        for x = 0 to 4000
+            if (st > ser and bb > 0) or (st < ser and bb < 0)
+                break
+            em := alpha * st + (1.0 - alpha) * nz(em)
+            st += bb * obox_val
+    na(em) ? em[1] : em
+
+float tema_raw = myema(icloseprice, tremalen, trcnt1, obox)
+float tema     = icloseprice - math.floor((icloseprice - tema_raw) / obox) * obox
+
+float Upt = tema - thsreversal * box
+Upt := Upt > icloseprice - reversal * box ? icloseprice - reversal * box : Upt
+float Dnt = tema + thsreversal * box
+Dnt := Dnt < icloseprice + reversal * box ? icloseprice + reversal * box : Dnt
+
+var float TrendUp   = na
+var float TrendDown = na
+var int   waitit    = 0
+var int   mtrend    = 1
+
+waitit    := nz(waitit[1])
+TrendUp   := ta.change(icloseprice) != 0 and waitit == 0 ?
+             (nz(icloseprice[1]) > nz(TrendUp[1]) ? math.max(Upt, nz(TrendUp[1])) : Upt) : nz(TrendUp[1])
+TrendUp   := mtrend == 1 and ta.change(TrendUp) < 0 ? nz(TrendUp[1]) : TrendUp
+TrendDown := ta.change(icloseprice) != 0 and waitit == 0 ?
+             (nz(icloseprice[1]) < nz(TrendDown[1]) ? math.min(Dnt, nz(TrendDown[1])) : Dnt) : nz(TrendDown[1])
+TrendDown := mtrend == -1 and ta.change(TrendDown) > 0 ? nz(TrendDown[1]) : TrendDown
+
+mtrend := waitit == 0 ? (icloseprice > nz(TrendDown[1]) ? 1 : icloseprice < nz(TrendUp[1]) ? -1 : mtrend) : mtrend
+
+if ta.change(mtrend) != 0 and waitit == 0 and nz(waitit[2]) == 0
+    waitit := 1
+else
+    waitit := waitit != 0 ? waitit + 1 : waitit
+
+if waitit > 0
+    mtrend := nz(mtrend[1])
+
+if waitit > barcountwhip
+    if mtrend == 1
+        if icloseprice >= TrendUp + thsreversal2 * box
+            waitit := 0
+        if icloseprice <= TrendUp - thsreversal2 * box
+            waitit    := 0
+            mtrend    := -1
+            TrendDown := nz(icloseprice[1]) < nz(TrendDown[1]) ? math.min(Dnt, nz(TrendDown[1])) : Dnt
+    else
+        if icloseprice <= TrendDown - thsreversal2 * box
+            waitit := 0
+        if icloseprice >= TrendDown + thsreversal2 * box
+            waitit  := 0
+            mtrend  := 1
+            TrendUp := nz(icloseprice[1]) > nz(TrendUp[1]) ? math.max(Upt, nz(TrendUp[1])) : Upt
+
+float Tsl  = mtrend == 1 ? TrendUp : TrendDown
+float Tsl2 = mtrend == 1 ? TrendUp + thsreversal * box : TrendDown - thsreversal * box
+Tsl2 := (mtrend == 1 and Tsl2 > icloseprice) or (mtrend == -1 and Tsl2 < icloseprice) ? icloseprice : Tsl2
+Tsl2 := Tsl2 < 0 ? 0 : Tsl2
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  TP / SL LEVEL ENGINE
+// ══════════════════════════════════════════════════════════════════════════════
+float atrLvl    = ta.atr(atrLvlLen)
+bool  trendFlip = ta.change(mtrend) != 0 and waitit == 0
+
+var float swingLow      = na
+var float swingHigh     = na
+var float prevSwingLow  = na
+var float prevSwingHigh = na
+
+if trendFlip
+    prevSwingLow  := swingLow
+    prevSwingHigh := swingHigh
+    swingLow      := low
+    swingHigh     := high
+else
+    swingLow  := na(swingLow)  ? low  : math.min(swingLow,  low)
+    swingHigh := na(swingHigh) ? high : math.max(swingHigh, high)
+
+var float lvlEntry = na
+var float lvlSL    = na
+var float lvlTP1   = na
+var float lvlTP2   = na
+var float lvlTP3   = na
+var bool  isLong   = true
+
+var line  lineEntry = na
+var line  lineSL    = na
+var line  lineTP1   = na
+var line  lineTP2   = na
+var line  lineTP3   = na
+var label sigLabel  = na
+
+f_dist(float ep, float atr_val, float atrMult, float pct) =>
+    lvlType == "ATR" ? atr_val * atrMult : ep * pct / 100.0
+
+// Levels are computed on EVERY flip (the webhook alert needs them even when
+// chart drawing is turned off); drawing happens below only if showLevels.
+if trendFlip
+    isLong       := mtrend == 1
+    float ep      = close
+    lvlEntry     := ep
+
+    if lvlType == "Trend Flip Anchor"
+        float anchorSL = isLong ? prevSwingLow : prevSwingHigh
+        if na(anchorSL)
+            anchorSL := isLong ? low : high
+        lvlSL := anchorSL
+        float risk = math.abs(ep - anchorSL)
+        lvlTP1 := isLong ? ep + risk * tp1RR : ep - risk * tp1RR
+        lvlTP2 := isLong ? ep + risk * tp2RR : ep - risk * tp2RR
+        lvlTP3 := isLong ? ep + risk * tp3RR : ep - risk * tp3RR
+    else
+        float dSL  = f_dist(ep, atrLvl, slAtrMult,  slPct)
+        float dTP1 = f_dist(ep, atrLvl, tp1AtrMult, tp1Pct)
+        float dTP2 = f_dist(ep, atrLvl, tp2AtrMult, tp2Pct)
+        float dTP3 = f_dist(ep, atrLvl, tp3AtrMult, tp3Pct)
+        lvlSL  := isLong ? ep - dSL  : ep + dSL
+        lvlTP1 := isLong ? ep + dTP1 : ep - dTP1
+        lvlTP2 := isLong ? ep + dTP2 : ep - dTP2
+        lvlTP3 := isLong ? ep + dTP3 : ep - dTP3
+
+if showLevels and trendFlip
+    line.delete(lineEntry)
+    line.delete(lineSL)
+    line.delete(lineTP1)
+    line.delete(lineTP2)
+    line.delete(lineTP3)
+    label.delete(sigLabel)
+    lineEntry := na
+    lineSL    := na
+    lineTP1   := na
+    lineTP2   := na
+    lineTP3   := na
+
+    int x1 = bar_index
+    int x2 = bar_index + 500
+
+    lineEntry := line.new(x1, lvlEntry, x2, lvlEntry, xloc.bar_index, extend.none, color.new(color.white, 0), line.style_solid,  1)
+    lineSL    := line.new(x1, lvlSL,    x2, lvlSL,    xloc.bar_index, extend.none, colSL,                     line.style_dashed, 1)
+    lineTP1   := line.new(x1, lvlTP1,   x2, lvlTP1,   xloc.bar_index, extend.none, colTP1,                    line.style_dashed, 1)
+    lineTP2   := line.new(x1, lvlTP2,   x2, lvlTP2,   xloc.bar_index, extend.none, colTP2,                    line.style_dashed, 1)
+    lineTP3   := line.new(x1, lvlTP3,   x2, lvlTP3,   xloc.bar_index, extend.none, colTP3,                    line.style_dashed, 1)
+
+    if showLvlLabel
+        string dir  = isLong ? "▲ LONG" : "▼ SHORT"
+        string body = dir +
+             "\nEntry: " + str.tostring(lvlEntry, "#.##") +
+             "\nSL:    " + str.tostring(lvlSL,  "#.##") +
+             "\nTP1:   " + str.tostring(lvlTP1, "#.##") +
+             "\nTP2:   " + str.tostring(lvlTP2, "#.##") +
+             "\nTP3:   " + str.tostring(lvlTP3, "#.##")
+        color lblBg  = isLong ? color.new(color.green, 15) : color.new(color.red, 15)
+        float lblY   = isLong ? low - atrLvl * 2.0 : high + atrLvl * 2.0
+        lStyle = isLong ? label.style_label_up : label.style_label_down
+        sigLabel := label.new(x1, lblY, body, xloc.bar_index, yloc.price, lblBg, lStyle, color.white, size.small)
+
+if not na(lineEntry)
+    line.set_x2(lineEntry, bar_index + 500)
+if not na(lineSL)
+    line.set_x2(lineSL,   bar_index + 500)
+if not na(lineTP1)
+    line.set_x2(lineTP1,  bar_index + 500)
+if not na(lineTP2)
+    line.set_x2(lineTP2,  bar_index + 500)
+if not na(lineTP3)
+    line.set_x2(lineTP3,  bar_index + 500)
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  TRAILING SL — ATR CHANDELIER
+// ══════════════════════════════════════════════════════════════════════════════
+float trailAtr   = ta.atr(trailAtrLen)
+var float trailSL   = na
+var float runningHi = na
+var float runningLo = na
+
+if trendFlip
+    runningHi := high
+    runningLo := low
+    trailSL   := isLong ? high - trailAtr * trailAtrMult : low + trailAtr * trailAtrMult
+else
+    runningHi := na(runningHi) ? high : math.max(runningHi, high)
+    runningLo := na(runningLo) ? low  : math.min(runningLo, low)
+    if isLong
+        float candidate = runningHi - trailAtr * trailAtrMult
+        trailSL := na(trailSL) ? candidate : math.max(trailSL, candidate)
+    else
+        float candidate = runningLo + trailAtr * trailAtrMult
+        trailSL := na(trailSL) ? candidate : math.min(trailSL, candidate)
+
+bool trailVisible = useTrailSL and waitit == 0 and not na(trailSL)
+plot(trailVisible ? trailSL : na, "Trail SL", color=colTrail, style=plot.style_cross, linewidth=1, editable=false)
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  THEME COLORS
+// ══════════════════════════════════════════════════════════════════════════════
+color upcolor   = brcol_inp == "Green/Red"   ? color.green  :
+                  brcol_inp == "White/Yellow" ? color.white  :
+                  brcol_inp == "Lime/Red"     ? color.lime   :
+                  brcol_inp == "Blue/Red"     ? color.blue   :
+                  brcol_inp == "Yellow/Blue"  ? color.yellow : color.orange
+color downcolor = brcol_inp == "Yellow/Blue" or brcol_inp == "Orange/Blue" ? color.blue :
+                  brcol_inp == "Green/Red"   or brcol_inp == "Lime/Red"   or brcol_inp == "Blue/Red" ? color.red : color.yellow
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  CHART PLOTS
+// ══════════════════════════════════════════════════════════════════════════════
+p_open  = plot(showstyle == "Area" and oprice > 0      ? oprice      : na, "Open",  color=color.gray, editable=false)
+p_close = plot(showstyle == "Area" and icloseprice > 0 ? icloseprice : na, "Close", color=color.gray, editable=false)
+fill(p_open, p_close,
+     color    = oprice <= 0 or icloseprice <= 0 ? na : trend == 1 ? color.new(upcolor, 70) : color.new(downcolor, 70),
+     editable = false)
+plotcandle(showstyle == "Candle" ? oprice : na,
+           showstyle == "Candle" ? math.max(oprice, icloseprice) : na,
+           showstyle == "Candle" ? math.min(oprice, icloseprice) : na,
+           showstyle == "Candle" ? icloseprice : na,
+           "Renko Candles", color=trend == 1 ? upcolor : downcolor, editable=false)
+barcolor(changebarcol ? (trend == 1 ? upcolor : downcolor) : na, editable=false)
+
+color trendcol = mtrend == 1 and nz(mtrend[1]) == 1  ? (waitit == 0 ? color.green : color.silver) :
+                 mtrend == -1 and nz(mtrend[1]) == -1 ? (waitit == 0 ? color.red   : color.silver) : na
+p_tsl  = plot(Tsl,  linewidth=3, color=showtrend and Tsl != 0 and nz(Tsl[1]) != 0 ? trendcol : na, editable=false)
+p_tsl2 = plot(Tsl2, linewidth=1, style=plot.style_circles, color=na, editable=false)
+
+color trcol = showtrend and showtrhold and mtrend == nz(mtrend[1]) and Tsl != 0 and nz(Tsl[1]) != 0 ?
+              (waitit == 0 ? (mtrend == 1 ? color.new(color.lime, 80) : color.new(color.red, 80)) :
+               color.new(color.yellow, 80)) : color.new(color.white, 100)
+fill(p_tsl, p_tsl2, color=trcol, editable=false)
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  MTF SECURITY CALLS
+// ══════════════════════════════════════════════════════════════════════════════
+[tfA_mtrend, tfA_trend, tfA_tsl] = request.security(syminfo.tickerid, tfA, [mtrend, trend, Tsl])
+[tfB_mtrend, tfB_trend, tfB_tsl] = request.security(syminfo.tickerid, tfB, [mtrend, trend, Tsl])
+[tfC_mtrend, tfC_trend, tfC_tsl] = request.security(syminfo.tickerid, tfC, [mtrend, trend, Tsl])
+[tfD_mtrend, tfD_trend, tfD_tsl] = request.security(syminfo.tickerid, tfD, [mtrend, trend, Tsl])
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  MARKETEDGEPRO WEBHOOK ALERT BUILDER
+//  Fires via alert() so ONE TradingView alert ("alert() function calls only")
+//  covers every entry and exit, with the exact SL/TP the backtest trades.
+// ══════════════════════════════════════════════════════════════════════════════
+f_alertJson(string action, string sigType, string msg, float ep, float sl, float t1, float t2, float t3, int votes) =>
+    string mtf = (mtrend == 1 ? "▲" : "▼") + " " + (tfA_mtrend == 1 ? "▲" : "▼") + (tfB_mtrend == 1 ? "▲" : "▼") + (tfC_mtrend == 1 ? "▲" : "▼") + (tfD_mtrend == 1 ? "▲" : "▼")
+    '{"symbol":"' + syminfo.ticker + '","timeframe":"' + timeframe.period + '","action":"' + action + '","signalType":"' + sigType + '"' + (msg != "" ? ',"message":"' + msg + '"' : "") + ',"price":' + str.tostring(ep, "#.####") + ',"sl":' + str.tostring(sl, "#.####") + ',"tp1":' + str.tostring(t1, "#.####") + ',"tp2":' + str.tostring(t2, "#.####") + ',"tp3":' + str.tostring(t3, "#.####") + ',"renkoTrend":"' + (trend == 1 ? "Bullish" : "Bearish") + '","mtfScore":"' + mtf + '","confluenceCount":' + str.tostring(votes) + (autoAnalyze ? ',"autoAnalyze":true' : '') + '}'
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  MTF TREND LINE OVERLAYS
+// ══════════════════════════════════════════════════════════════════════════════
+color tfA_tsl_col = showTslA and tfA_tsl != 0 ? (tfA_mtrend == 1 ? color.new(colTslA, 20) : color.new(colTslA, 60)) : na
+plot(showTslA ? tfA_tsl : na, "TF A Trend", color=tfA_tsl_col, linewidth=2, style=plot.style_stepline)
+
+color tfB_tsl_col = showTslB and tfB_tsl != 0 ? (tfB_mtrend == 1 ? color.new(colTslB, 20) : color.new(colTslB, 60)) : na
+plot(showTslB ? tfB_tsl : na, "TF B Trend", color=tfB_tsl_col, linewidth=2, style=plot.style_stepline)
+
+color tfC_tsl_col = showTslC and tfC_tsl != 0 ? (tfC_mtrend == 1 ? color.new(colTslC, 20) : color.new(colTslC, 60)) : na
+plot(showTslC ? tfC_tsl : na, "TF C Trend", color=tfC_tsl_col, linewidth=2, style=plot.style_stepline)
+
+color tfD_tsl_col = showTslD and tfD_tsl != 0 ? (tfD_mtrend == 1 ? color.new(colTslD, 20) : color.new(colTslD, 60)) : na
+plot(showTslD ? tfD_tsl : na, "TF D Trend", color=tfD_tsl_col, linewidth=2, style=plot.style_stepline)
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  REAL BACKTEST STATS  (from strategy.*)
+// ══════════════════════════════════════════════════════════════════════════════
+var int   lWinCnt     = 0
+var int   lLossCnt    = 0
+var int   sWinCnt     = 0
+var int   sLossCnt    = 0
+var int   flipWinCnt  = 0
+var int   flipLossCnt = 0
+var float flipGProfit = 0.0
+var float flipGLoss   = 0.0
+var int   pbWinCnt    = 0
+var int   pbLossCnt   = 0
+var float pbGProfit   = 0.0
+var float pbGLoss     = 0.0
+var string lastLongTag  = "F"
+var string lastShortTag = "F"
+
+if ta.change(strategy.closedtrades) != 0 and strategy.closedtrades > 0
+    int    _idx  = strategy.closedtrades - 1
+    float  _pnl  = strategy.closedtrades.profit(_idx)
+    string _id   = strategy.closedtrades.entry_id(_idx)
+    bool   _isLng = _id == "Long"
+    string _tag  = _isLng ? lastLongTag : lastShortTag
+    if _pnl > 0
+        if _isLng
+            lWinCnt += 1
+        else
+            sWinCnt += 1
+        if _tag == "F"
+            flipWinCnt  += 1
+            flipGProfit += _pnl
+        else
+            pbWinCnt    += 1
+            pbGProfit   += _pnl
+    else
+        if _isLng
+            lLossCnt += 1
+        else
+            sLossCnt += 1
+        if _tag == "F"
+            flipLossCnt += 1
+            flipGLoss   += math.abs(_pnl)
+        else
+            pbLossCnt   += 1
+            pbGLoss     += math.abs(_pnl)
+
+int   tradeCnt = strategy.closedtrades
+int   winCnt   = strategy.wintrades
+int   lossCnt  = strategy.losstrades
+float gProfit  = strategy.grossprofit
+float gLoss    = strategy.grossloss
+
+float winRate  = tradeCnt > 0 ? winCnt / tradeCnt * 100 : 0.0
+float pf       = gLoss > 0 ? gProfit / gLoss : gProfit > 0 ? 999.0 : 0.0
+float avgW     = winCnt  > 0 ? gProfit / winCnt  : 0.0
+float avgL     = lossCnt > 0 ? gLoss   / lossCnt : 0.0
+float rr       = avgL > 0 ? avgW / avgL : avgW > 0 ? 999.0 : 0.0
+float netP     = strategy.netprofit
+float netRet   = strategy.initial_capital > 0 ? strategy.netprofit / strategy.initial_capital * 100 : 0.0
+float maxDDPct = strategy.max_drawdown / (strategy.initial_capital + strategy.netprofit) * 100
+float expect   = tradeCnt > 0 ? netP / tradeCnt : 0.0
+float lWR      = (lWinCnt + lLossCnt) > 0 ? lWinCnt / (lWinCnt + lLossCnt) * 100 : 0.0
+float sWR      = (sWinCnt + sLossCnt) > 0 ? sWinCnt / (sWinCnt + sLossCnt) * 100 : 0.0
+
+int   flipTrades = flipWinCnt + flipLossCnt
+float flipWR     = flipTrades > 0 ? flipWinCnt / flipTrades * 100 : 0.0
+float flipPF     = flipGLoss  > 0 ? flipGProfit / flipGLoss : flipGProfit > 0 ? 999.0 : 0.0
+int   pbTrades   = pbWinCnt   + pbLossCnt
+float pbWR       = pbTrades   > 0 ? pbWinCnt   / pbTrades   * 100 : 0.0
+float pbPF       = pbGLoss    > 0 ? pbGProfit  / pbGLoss    : pbGProfit   > 0 ? 999.0 : 0.0
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  SESSION DETECTION
+// ══════════════════════════════════════════════════════════════════════════════
+bool sesSydneyActive = not na(time(timeframe.period, "1700-0200:1234567", sesTZ))
+bool sesAsiaActive   = not na(time(timeframe.period, "1900-0400:1234567", sesTZ))
+bool sesLondonActive = not na(time(timeframe.period, "0300-1200:1234567", sesTZ))
+bool sesUSActive     = not na(time(timeframe.period, "0800-1700:1234567", sesTZ))
+bool sesCustomActive = not na(time(timeframe.period, customSes, sesTZ))
+
+bool anySesEnabled = useSydney or useAsia or useLondon or useUS or useCustom
+bool sessionGate   = not useSessionFilter or not anySesEnabled or
+     ((useSydney and sesSydneyActive) or (useAsia and sesAsiaActive) or (useLondon and sesLondonActive) or (useUS and sesUSActive) or (useCustom and sesCustomActive))
+
+// ── TF label formatter ────────────────────────────────────────────────────────
+f_fmtTF(string tf) =>
+    string r = tf
+    if tf == "1"
+        r := "1m"
+    else if tf == "3"
+        r := "3m"
+    else if tf == "5"
+        r := "5m"
+    else if tf == "15"
+        r := "15m"
+    else if tf == "30"
+        r := "30m"
+    else if tf == "45"
+        r := "45m"
+    else if tf == "60"
+        r := "1h"
+    else if tf == "120"
+        r := "2h"
+    else if tf == "180"
+        r := "3h"
+    else if tf == "240"
+        r := "4h"
+    else if tf == "360"
+        r := "6h"
+    else if tf == "480"
+        r := "8h"
+    else if tf == "720"
+        r := "12h"
+    else if tf == "D"
+        r := "1D"
+    else if tf == "W"
+        r := "1W"
+    else if tf == "M"
+        r := "1M"
+    r
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  BEST-TF ADVISOR
+// ══════════════════════════════════════════════════════════════════════════════
+f_tfStats(simple string tf) =>
+    [_close, _mtr, _wait] = request.security(syminfo.tickerid, tf, [close, mtrend, waitit], barmerge.gaps_off, barmerge.lookahead_off)
+    var float _lastEntry = na
+    var int   _lastDir   = 0
+    var int   _trades    = 0
+    var int   _wins      = 0
+    var float _gp        = 0.0
+    var float _gl        = 0.0
+    var float _eq        = 100.0
+    var float _peak      = 100.0
+    var float _ddMax     = 0.0
+    bool _flip = ta.change(_mtr) != 0 and _wait == 0 and not na(_mtr[1])
+    if _flip
+        if not na(_lastEntry) and _lastDir != 0
+            float _pnlPct = _lastDir == 1 ? (_close - _lastEntry) / _lastEntry * 100 : (_lastEntry - _close) / _lastEntry * 100
+            _trades += 1
+            if _pnlPct > 0
+                _wins += 1
+                _gp   += _pnlPct
+            else
+                _gl += math.abs(_pnlPct)
+            _eq *= 1 + _pnlPct / 100
+            if _eq > _peak
+                _peak := _eq
+            float _dd = _peak > 0 ? (_peak - _eq) / _peak * 100 : 0.0
+            if _dd > _ddMax
+                _ddMax := _dd
+        _lastEntry := _close
+        _lastDir   := _mtr
+    float _wr  = _trades > 0 ? _wins / _trades * 100 : 0.0
+    float _pf  = _gl > 0 ? _gp / _gl : _gp > 0 ? 999.0 : 0.0
+    float _net = _eq - 100.0
+    [_pf, _wr, _ddMax, _net, _trades]
+
+[tfA_pf, tfA_wr, tfA_dd, tfA_net, tfA_trades] = f_tfStats(tfA)
+[tfB_pf, tfB_wr, tfB_dd, tfB_net, tfB_trades] = f_tfStats(tfB)
+[tfC_pf, tfC_wr, tfC_dd, tfC_net, tfC_trades] = f_tfStats(tfC)
+[tfD_pf, tfD_wr, tfD_dd, tfD_net, tfD_trades] = f_tfStats(tfD)
+[tfE_pf, tfE_wr, tfE_dd, tfE_net, tfE_trades] = f_tfStats("15")
+[tfF_pf, tfF_wr, tfF_dd, tfF_net, tfF_trades] = f_tfStats("30")
+[tfG_pf, tfG_wr, tfG_dd, tfG_net, tfG_trades] = f_tfStats("120")
+
+f_score(float p, float w, float d) => p * w / (d + 1.0)
+
+float tfA_score = tfScoreMode == "Highest PF" ? tfA_pf : tfScoreMode == "Highest WR" ? tfA_wr : tfScoreMode == "Lowest DD" ? -tfA_dd : tfScoreMode == "Highest Net %" ? tfA_net : f_score(tfA_pf, tfA_wr, tfA_dd)
+float tfB_score = tfScoreMode == "Highest PF" ? tfB_pf : tfScoreMode == "Highest WR" ? tfB_wr : tfScoreMode == "Lowest DD" ? -tfB_dd : tfScoreMode == "Highest Net %" ? tfB_net : f_score(tfB_pf, tfB_wr, tfB_dd)
+float tfC_score = tfScoreMode == "Highest PF" ? tfC_pf : tfScoreMode == "Highest WR" ? tfC_wr : tfScoreMode == "Lowest DD" ? -tfC_dd : tfScoreMode == "Highest Net %" ? tfC_net : f_score(tfC_pf, tfC_wr, tfC_dd)
+float tfD_score = tfScoreMode == "Highest PF" ? tfD_pf : tfScoreMode == "Highest WR" ? tfD_wr : tfScoreMode == "Lowest DD" ? -tfD_dd : tfScoreMode == "Highest Net %" ? tfD_net : f_score(tfD_pf, tfD_wr, tfD_dd)
+float tfE_score = tfScoreMode == "Highest PF" ? tfE_pf : tfScoreMode == "Highest WR" ? tfE_wr : tfScoreMode == "Lowest DD" ? -tfE_dd : tfScoreMode == "Highest Net %" ? tfE_net : f_score(tfE_pf, tfE_wr, tfE_dd)
+float tfF_score = tfScoreMode == "Highest PF" ? tfF_pf : tfScoreMode == "Highest WR" ? tfF_wr : tfScoreMode == "Lowest DD" ? -tfF_dd : tfScoreMode == "Highest Net %" ? tfF_net : f_score(tfF_pf, tfF_wr, tfF_dd)
+float tfG_score = tfScoreMode == "Highest PF" ? tfG_pf : tfScoreMode == "Highest WR" ? tfG_wr : tfScoreMode == "Lowest DD" ? -tfG_dd : tfScoreMode == "Highest Net %" ? tfG_net : f_score(tfG_pf, tfG_wr, tfG_dd)
+
+float bestScore = math.max(math.max(math.max(tfA_score, tfB_score), math.max(tfC_score, tfD_score)), math.max(math.max(tfE_score, tfF_score), tfG_score))
+string bestTF   = tfA_score == bestScore ? tfA : tfB_score == bestScore ? tfB : tfC_score == bestScore ? tfC : tfD_score == bestScore ? tfD : tfE_score == bestScore ? "15" : tfF_score == bestScore ? "30" : "120"
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  DASHBOARDS
+// ══════════════════════════════════════════════════════════════════════════════
+f_lbl(int v) => v == 1 ? "BULL" : "BEAR"
+f_bg(int v)  => v == 1 ? color.new(color.green, 65) : color.new(color.red, 65)
+f_pos(string p) => p == "Top Left" ? position.top_left : p == "Top Right" ? position.top_right : p == "Bottom Left" ? position.bottom_left : position.bottom_right
+
+color HBGC = color.new(#0d1b3e, 5)
+color RBGC = color.new(#101010, 72)
+
+// ── Mini Dashboard ────────────────────────────────────────────────────────────
+var table mini = table.new(position.bottom_right, 2, 6, bgcolor=color.new(color.black, 78), border_width=1, border_color=color.new(color.gray, 55), frame_width=2, frame_color=color.new(#3a3a5c, 20))
+
+if barstate.islast and dashMode == "Mini"
+    table.cell(mini, 0, 0, "TF",   bgcolor=HBGC, text_color=color.white,  text_size=size.small)
+    table.cell(mini, 1, 0, "Main", bgcolor=HBGC, text_color=color.yellow, text_size=size.small)
+    string cur_tf_lbl = timeframe.period == "" ? "Chart" : f_fmtTF(timeframe.period)
+    table.cell(mini, 0, 1, cur_tf_lbl,    bgcolor=RBGC,         text_color=color.silver, text_size=size.small)
+    table.cell(mini, 1, 1, f_lbl(mtrend), bgcolor=f_bg(mtrend), text_color=color.white,  text_size=size.small)
+    table.cell(mini, 0, 2, f_fmtTF(tfA),      bgcolor=RBGC,             text_color=colTslA,     text_size=size.small)
+    table.cell(mini, 1, 2, f_lbl(tfA_mtrend), bgcolor=f_bg(tfA_mtrend), text_color=color.white, text_size=size.small)
+    table.cell(mini, 0, 3, f_fmtTF(tfB),      bgcolor=RBGC,             text_color=colTslB,     text_size=size.small)
+    table.cell(mini, 1, 3, f_lbl(tfB_mtrend), bgcolor=f_bg(tfB_mtrend), text_color=color.white, text_size=size.small)
+    table.cell(mini, 0, 4, f_fmtTF(tfC),      bgcolor=RBGC,             text_color=colTslC,     text_size=size.small)
+    table.cell(mini, 1, 4, f_lbl(tfC_mtrend), bgcolor=f_bg(tfC_mtrend), text_color=color.white, text_size=size.small)
+    table.cell(mini, 0, 5, f_fmtTF(tfD),      bgcolor=RBGC,             text_color=colTslD,     text_size=size.small)
+    table.cell(mini, 1, 5, f_lbl(tfD_mtrend), bgcolor=f_bg(tfD_mtrend), text_color=color.white, text_size=size.small)
+
+// ── Full Dashboard helpers ────────────────────────────────────────────────────
+f_row(table tbl, int r, string lbl, string val, color labelBg, color valueBg) =>
+    table.cell(tbl, 0, r, " " + lbl + " ", text_color=color.white, bgcolor=labelBg, text_size=size.small, text_halign=text.align_left)
+    table.cell(tbl, 1, r, " " + val + " ", text_color=color.white, bgcolor=valueBg, text_size=size.small, text_halign=text.align_right)
+
+f_mtfRow(table tbl, int r, string tfLbl, int mainV, int renkoV, color bgBlue, color bgDark) =>
+    string arrow  = mainV  == 1 ? "▲" : mainV  == -1 ? "▼" : "─"
+    color  arwCol = mainV  == 1 ? color.lime : mainV == -1 ? color.red : color.gray
+    string rArrow = renkoV == 1 ? "▲" : renkoV == -1 ? "▼" : "─"
+    table.cell(tbl, 0, r, " " + tfLbl + " ",       text_color=color.white, bgcolor=bgBlue, text_size=size.small, text_halign=text.align_left)
+    table.cell(tbl, 1, r, arrow + "  " + rArrow + " ", text_color=arwCol,  bgcolor=bgDark, text_size=size.small, text_halign=text.align_right)
+
+if barstate.islast and dashMode == "Full"
+    color dbg    = color.new(#1a1a2e, dashAlpha)
+    color cGrn   = color.new(#2e7d32, 0)
+    color cRed   = color.new(#c62828, 0)
+    color cGry   = color.new(#616161, 0)
+    color cTel   = color.new(#00796b, 0)
+    color cPrp   = color.new(#7b1fa2, 0)
+    color cOrn   = color.new(#e65100, 0)
+    color cBlu   = color.new(#1565c0, 0)
+    color cDkBlu = color.new(#0d47a1, 0)
+
+    var table dash = table.new(f_pos(dashPos), 2, 36, border_width=0, bgcolor=dbg)
+
+    table.cell(dash, 0, 0, syminfo.ticker + " · " + timeframe.period, text_color=color.white, bgcolor=color.new(#0d47a1, dashAlpha), text_size=size.small, text_halign=text.align_center)
+    table.merge_cells(dash, 0, 0, 1, 0)
+
+    string sigLbl = strategy.position_size > 0 ? "  ▲ LONG  " : strategy.position_size < 0 ? "  ▼ SHORT  " : "  ─ FLAT  "
+    color  sigBg  = strategy.position_size > 0 ? cGrn : strategy.position_size < 0 ? cRed : cGry
+    table.cell(dash, 0, 1, " Signal ", text_color=color.white, bgcolor=dbg,   text_size=size.small, text_halign=text.align_left)
+    table.cell(dash, 1, 1, sigLbl,     text_color=color.white, bgcolor=sigBg, text_size=size.small, text_halign=text.align_center)
+
+    table.cell(dash, 0, 2, "", bgcolor=dbg, text_size=size.tiny)
+    table.cell(dash, 1, 2, "", bgcolor=dbg, text_size=size.tiny)
+
+    f_row(dash, 3,  "Wins",          str.tostring(winCnt),                          cGrn, dbg)
+    f_row(dash, 4,  "Losses",        str.tostring(lossCnt),                         cRed, dbg)
+    f_row(dash, 5,  "Trades",        str.tostring(tradeCnt),                        cGry, dbg)
+    f_row(dash, 6,  "Win Rate",      str.tostring(winRate, "#0.00") + "%",          cTel, dbg)
+    f_row(dash, 7,  "Profit Factor", str.tostring(pf,      "#0.00"),                cPrp, dbg)
+    f_row(dash, 8,  "Net Profit",    "$" + str.tostring(netP, "#,##0.00"),          cOrn, dbg)
+    f_row(dash, 9,  "Return %",      str.tostring(netRet,  "#0.00") + "%",          netRet >= 0 ? cGrn : cRed, dbg)
+    f_row(dash, 10, "Max Drawdown",  str.tostring(maxDDPct, "#0.0") + "%",          cRed, dbg)
+    f_row(dash, 11, "Risk:Reward",   str.tostring(rr,      "#0.00"),                cTel, dbg)
+    f_row(dash, 12, "Expectancy",    str.tostring(expect,  "#0.00"),                cPrp, dbg)
+    f_row(dash, 13, "Long WR",       str.tostring(lWR, "#0.0") + "%",               cBlu, dbg)
+    f_row(dash, 14, "Short WR",      str.tostring(sWR, "#0.0") + "%",               cBlu, dbg)
+
+    string renkoStr = trend == 1 ? "▲" : trend == -1 ? "▼" : "─"
+    color  renkoCol = trend == 1 ? color.lime : trend == -1 ? color.red : color.gray
+    table.cell(dash, 0, 15, " Renko ", text_color=color.white, bgcolor=cTel, text_size=size.small, text_halign=text.align_left)
+    table.cell(dash, 1, 15, " " + renkoStr + " ", text_color=renkoCol, bgcolor=dbg, text_size=size.small, text_halign=text.align_right)
+
+    table.cell(dash, 0, 16, " MTF TREND ", text_color=color.white, bgcolor=cDkBlu, text_size=size.small, text_halign=text.align_center)
+    table.merge_cells(dash, 0, 16, 1, 16)
+
+    string chartTFLbl = timeframe.period == "" ? "Chart" : f_fmtTF(timeframe.period)
+    f_mtfRow(dash, 17, chartTFLbl,    mtrend,     trend,     cBlu, color.new(#1a1a2e, 10))
+    f_mtfRow(dash, 18, f_fmtTF(tfA), tfA_mtrend, tfA_trend, cBlu, color.new(#1a1a2e, 10))
+    f_mtfRow(dash, 19, f_fmtTF(tfB), tfB_mtrend, tfB_trend, cBlu, color.new(#1a1a2e, 10))
+    f_mtfRow(dash, 20, f_fmtTF(tfC), tfC_mtrend, tfC_trend, cBlu, color.new(#1a1a2e, 10))
+    f_mtfRow(dash, 21, f_fmtTF(tfD), tfD_mtrend, tfD_trend, cBlu, color.new(#1a1a2e, 10))
+
+    int    bullC   = (tfA_mtrend == 1 ? 1 : 0) + (tfB_mtrend == 1 ? 1 : 0) + (tfC_mtrend == 1 ? 1 : 0) + (tfD_mtrend == 1 ? 1 : 0)
+    int    bearC   = 4 - bullC
+    color  confCol = bullC > bearC ? cGrn : bearC > bullC ? cRed : cGry
+    string confStr = str.tostring(bullC) + "/4 Bull  " + str.tostring(bearC) + "/4 Bear"
+    table.cell(dash, 0, 22, " Confluence ", text_color=color.white, bgcolor=confCol, text_size=size.small, text_halign=text.align_left)
+    table.cell(dash, 1, 22, " " + confStr + " ", text_color=color.white, bgcolor=confCol, text_size=size.small, text_halign=text.align_right)
+
+    table.cell(dash, 0, 23, " SESSIONS ", text_color=color.white, bgcolor=cDkBlu, text_size=size.small, text_halign=text.align_center)
+    table.merge_cells(dash, 0, 23, 1, 23)
+
+    string sydStr = not useSydney ? "─ off" : sesSydneyActive ? "● ACTIVE" : "○ idle"
+    color  sydBg  = not useSydney ? cGry : sesSydneyActive ? cGrn : color.new(#1a1a2e, 10)
+    table.cell(dash, 0, 24, " Sydney ", text_color=color.white, bgcolor=cBlu,  text_size=size.small, text_halign=text.align_left)
+    table.cell(dash, 1, 24, " " + sydStr + " ", text_color=color.white, bgcolor=sydBg, text_size=size.small, text_halign=text.align_right)
+
+    string asiStr = not useAsia ? "─ off" : sesAsiaActive ? "● ACTIVE" : "○ idle"
+    color  asiBg  = not useAsia ? cGry : sesAsiaActive ? cGrn : color.new(#1a1a2e, 10)
+    table.cell(dash, 0, 25, " Asia ", text_color=color.white, bgcolor=cBlu,  text_size=size.small, text_halign=text.align_left)
+    table.cell(dash, 1, 25, " " + asiStr + " ", text_color=color.white, bgcolor=asiBg, text_size=size.small, text_halign=text.align_right)
+
+    string lonStr = not useLondon ? "─ off" : sesLondonActive ? "● ACTIVE" : "○ idle"
+    color  lonBg  = not useLondon ? cGry : sesLondonActive ? cGrn : color.new(#1a1a2e, 10)
+    table.cell(dash, 0, 26, " London ", text_color=color.white, bgcolor=cBlu, text_size=size.small, text_halign=text.align_left)
+    table.cell(dash, 1, 26, " " + lonStr + " ", text_color=color.white, bgcolor=lonBg, text_size=size.small, text_halign=text.align_right)
+
+    string usStr = not useUS ? "─ off" : sesUSActive ? "● ACTIVE" : "○ idle"
+    color  usBg  = not useUS ? cGry : sesUSActive ? cGrn : color.new(#1a1a2e, 10)
+    table.cell(dash, 0, 27, " US ", text_color=color.white, bgcolor=cBlu,  text_size=size.small, text_halign=text.align_left)
+    table.cell(dash, 1, 27, " " + usStr + " ", text_color=color.white, bgcolor=usBg,  text_size=size.small, text_halign=text.align_right)
+
+    string cusStr = not useCustom ? "─ off" : sesCustomActive ? "● ACTIVE" : "○ idle"
+    color  cusBg  = not useCustom ? cGry : sesCustomActive ? cGrn : color.new(#1a1a2e, 10)
+    table.cell(dash, 0, 28, " Custom ", text_color=color.white, bgcolor=cBlu, text_size=size.small, text_halign=text.align_left)
+    table.cell(dash, 1, 28, " " + cusStr + " ", text_color=color.white, bgcolor=cusBg, text_size=size.small, text_halign=text.align_right)
+
+    string filtStr = useSessionFilter ? (sessionGate ? "✓ ALLOWED" : "✗ BLOCKED") : "OFF"
+    color  filtBg  = not useSessionFilter ? cGry : sessionGate ? cGrn : cRed
+    table.cell(dash, 0, 29, " Filter ", text_color=color.white, bgcolor=cDkBlu, text_size=size.small, text_halign=text.align_left)
+    table.cell(dash, 1, 29, " " + filtStr + " ", text_color=color.white, bgcolor=filtBg, text_size=size.small, text_halign=text.align_right)
+
+    if showDashBreakdown
+        table.cell(dash, 0, 30, "", bgcolor=dbg, text_size=size.tiny)
+        table.cell(dash, 1, 30, "", bgcolor=dbg, text_size=size.tiny)
+        table.cell(dash, 0, 31, " ENTRY BREAKDOWN ", text_color=color.white, bgcolor=cDkBlu, text_size=size.small, text_halign=text.align_center)
+        table.merge_cells(dash, 0, 31, 1, 31)
+        table.cell(dash, 0, 32, " TYPE ",             text_color=color.yellow, bgcolor=color.new(#0d47a1, 30), text_size=size.small, text_halign=text.align_left)
+        table.cell(dash, 1, 32, " Trades · WR · PF ", text_color=color.yellow, bgcolor=color.new(#0d47a1, 30), text_size=size.small, text_halign=text.align_right)
+        string flipVal = str.tostring(flipTrades) + " · " + str.tostring(flipWR, "#0.0") + "% · " + str.tostring(flipPF, "#0.00")
+        color  flipBgC = flipTrades == 0 ? cGry : flipWR >= 50 ? cGrn : cRed
+        table.cell(dash, 0, 33, " FLIP ",     text_color=color.white, bgcolor=flipBgC, text_size=size.small, text_halign=text.align_left)
+        table.cell(dash, 1, 33, " " + flipVal + " ", text_color=color.white, bgcolor=dbg, text_size=size.small, text_halign=text.align_right)
+        string pbVal  = str.tostring(pbTrades) + " · " + str.tostring(pbWR, "#0.0") + "% · " + str.tostring(pbPF, "#0.00")
+        color  pbBgC2 = pbTrades == 0 ? cGry : pbWR >= 50 ? cGrn : cRed
+        table.cell(dash, 0, 34, " PULLBACK ", text_color=color.white, bgcolor=pbBgC2, text_size=size.small, text_halign=text.align_left)
+        table.cell(dash, 1, 34, " " + pbVal + " ",  text_color=color.white, bgcolor=dbg,  text_size=size.small, text_halign=text.align_right)
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  PULLBACK DETECTION
+// ══════════════════════════════════════════════════════════════════════════════
+float pbAtr    = ta.atr(14)
+float pbTol    = pbAtr * pbAtrMult
+bool  inBullTr = mtrend == 1
+bool  inBearTr = mtrend == -1
+
+bool brickDisagreeBull = inBullTr and trend == -1 and ta.change(trend) != 0
+bool brickDisagreeBear = inBearTr and trend ==  1 and ta.change(trend) != 0
+bool tslTouchBull      = inBullTr and not na(Tsl2) and Tsl2 > 0 and low  <= Tsl2 + pbTol
+bool tslTouchBear      = inBearTr and not na(Tsl2) and Tsl2 > 0 and high >= Tsl2 - pbTol
+
+bool rawPBBull = (pbMode == "Brick disagree" and brickDisagreeBull) or (pbMode == "Tsl touch" and tslTouchBull) or (pbMode == "Both" and (brickDisagreeBull or tslTouchBull))
+bool rawPBBear = (pbMode == "Brick disagree" and brickDisagreeBear) or (pbMode == "Tsl touch" and tslTouchBear) or (pbMode == "Both" and (brickDisagreeBear or tslTouchBear))
+
+var int lastPBBar = -10000
+bool pbBull = rawPBBull and (bar_index - lastPBBar) > pbCooldown
+bool pbBear = rawPBBear and (bar_index - lastPBBar) > pbCooldown
+if pbBull or pbBear
+    lastPBBar := bar_index
+
+plotshape(showPB and pbBull, "Bullish Pullback", shape.triangleup,   location.belowbar, colPBBull, size=size.small)
+plotshape(showPB and pbBear, "Bearish Pullback", shape.triangledown,  location.abovebar, colPBBear, size=size.small)
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  STRATEGY LOGIC
+// ══════════════════════════════════════════════════════════════════════════════
+int htfBull   = (tfA_mtrend == 1 ? 1 : 0) + (tfB_mtrend == 1 ? 1 : 0) + (tfC_mtrend == 1 ? 1 : 0) + (tfD_mtrend == 1 ? 1 : 0)
+int htfBear   = 4 - htfBull
+int totalBull = useChartTF ? htfBull + (mtrend == 1 ? 1 : 0) : htfBull
+int totalBear = useChartTF ? htfBear + (mtrend == -1 ? 1 : 0) : htfBear
+
+bool biasBullOK = totalBull >= minVotes
+bool biasBearOK = totalBear >= minVotes
+
+bool flipBullSig = ta.change(mtrend) != 0 and waitit == 0 and mtrend == 1
+bool flipBearSig = ta.change(mtrend) != 0 and waitit == 0 and mtrend == -1
+
+bool wantLong  = false
+bool wantShort = false
+if entryMode == "Mtrend flip"
+    wantLong  := flipBullSig
+    wantShort := flipBearSig
+else if entryMode == "Pullback"
+    wantLong  := pbBull
+    wantShort := pbBear
+else
+    wantLong  := flipBullSig or pbBull
+    wantShort := flipBearSig or pbBear
+
+bool entryLong  = wantLong  and biasBullOK
+bool entryShort = wantShort and biasBearOK
+
+bool posFlat  = strategy.position_size == 0
+bool posLong  = strategy.position_size > 0
+bool posShort = strategy.position_size < 0
+
+bool oppExitLong  = exitOpposite and posLong  and ta.change(mtrend) != 0 and waitit == 0 and mtrend == -1
+bool oppExitShort = exitOpposite and posShort and ta.change(mtrend) != 0 and waitit == 0 and mtrend ==  1
+
+// ── Walk-forward date gate (Phase 3 optimization export) ───────────────────────
+// When on, entries only fire inside [wfFrom, wfTo]. Run the same combo twice —
+// once on the in-sample window (tag "IS"), once on the out-of-sample window
+// (tag "OOS") — and the ingester pairs them for back↔forward consistency.
+useDateFilter = input.bool(false, "Walk-forward: limit ENTRIES to date range", group="Z • Optimization Export")
+wfFrom        = input.time(timestamp(2024, 1, 1, 0, 0),  "  From", group="Z • Optimization Export")
+wfTo          = input.time(timestamp(2025, 1, 1, 0, 0),  "  To",   group="Z • Optimization Export")
+bool dateGate = not useDateFilter or (time >= wfFrom and time <= wfTo)
+
+bool fireLong  = entryLong  and (posFlat or (posShort and allowReverse)) and sessionGate and dateGate
+bool fireShort = entryShort and (posFlat or (posLong  and allowReverse)) and sessionGate and dateGate
+
+float atrEntry = ta.atr(atrLvlLen)
+
+f_d(float ep, float atrV, float atrM, float pctV) => lvlType == "ATR" ? atrV * atrM : ep * pctV / 100.0
+
+var float curSL  = na
+var float curTP1 = na
+var float curTP2 = na
+var float curTP3 = na
+
+if fireLong
+    float ep = close
+    if lvlType == "Trend Flip Anchor"
+        curSL := na(prevSwingLow) ? low : prevSwingLow
+        float risk = math.abs(ep - curSL)
+        curTP1 := ep + risk * tp1RR
+        curTP2 := ep + risk * tp2RR
+        curTP3 := ep + risk * tp3RR
+    else
+        float dSL  = f_d(ep, atrEntry, slAtrMult,  slPct)
+        float dTP1 = f_d(ep, atrEntry, tp1AtrMult, tp1Pct)
+        float dTP2 = f_d(ep, atrEntry, tp2AtrMult, tp2Pct)
+        float dTP3 = f_d(ep, atrEntry, tp3AtrMult, tp3Pct)
+        curSL  := ep - dSL
+        curTP1 := ep + dTP1
+        curTP2 := ep + dTP2
+        curTP3 := ep + dTP3
+    lastLongTag := entryMode == "Mtrend flip" ? "F" : entryMode == "Pullback" ? "PB" : (flipBullSig ? "F" : "PB")
+    strategy.entry("Long", strategy.long)
+    strategy.exit("L-TP1", from_entry="Long", limit=curTP1, stop=curSL, qty_percent=tp1QtyPct, comment_loss="SL")
+    strategy.exit("L-TP2", from_entry="Long", limit=curTP2, stop=curSL, qty_percent=tp2QtyPct, comment_loss="SL")
+    strategy.exit("L-TP3", from_entry="Long", limit=curTP3, stop=curSL, qty_percent=tp3QtyPct, comment_loss="SL")
+    if sendEntryAlerts
+        alert(f_alertJson("BUY", flipBullSig ? "Trend Flip" : "Pullback", flipBullSig ? "Exit bearish → enter bullish" : "", ep, curSL, curTP1, curTP2, curTP3, totalBull), alert.freq_once_per_bar_close)
+
+if fireShort
+    float ep = close
+    if lvlType == "Trend Flip Anchor"
+        curSL := na(prevSwingHigh) ? high : prevSwingHigh
+        float risk = math.abs(ep - curSL)
+        curTP1 := ep - risk * tp1RR
+        curTP2 := ep - risk * tp2RR
+        curTP3 := ep - risk * tp3RR
+    else
+        float dSL  = f_d(ep, atrEntry, slAtrMult,  slPct)
+        float dTP1 = f_d(ep, atrEntry, tp1AtrMult, tp1Pct)
+        float dTP2 = f_d(ep, atrEntry, tp2AtrMult, tp2Pct)
+        float dTP3 = f_d(ep, atrEntry, tp3AtrMult, tp3Pct)
+        curSL  := ep + dSL
+        curTP1 := ep - dTP1
+        curTP2 := ep - dTP2
+        curTP3 := ep - dTP3
+    lastShortTag := entryMode == "Mtrend flip" ? "F" : entryMode == "Pullback" ? "PB" : (flipBearSig ? "F" : "PB")
+    strategy.entry("Short", strategy.short)
+    strategy.exit("S-TP1", from_entry="Short", limit=curTP1, stop=curSL, qty_percent=tp1QtyPct, comment_loss="SL")
+    strategy.exit("S-TP2", from_entry="Short", limit=curTP2, stop=curSL, qty_percent=tp2QtyPct, comment_loss="SL")
+    strategy.exit("S-TP3", from_entry="Short", limit=curTP3, stop=curSL, qty_percent=tp3QtyPct, comment_loss="SL")
+    if sendEntryAlerts
+        alert(f_alertJson("SELL", flipBearSig ? "Trend Flip" : "Pullback", flipBearSig ? "Exit bullish → enter bearish" : "", ep, curSL, curTP1, curTP2, curTP3, totalBear), alert.freq_once_per_bar_close)
+
+if useTrailSL and posLong and not na(trailSL) and not na(curTP1)
+    strategy.exit("L-TP1", from_entry="Long", limit=curTP1, stop=trailSL, qty_percent=tp1QtyPct, comment_loss="Trail")
+    strategy.exit("L-TP2", from_entry="Long", limit=curTP2, stop=trailSL, qty_percent=tp2QtyPct, comment_loss="Trail")
+    strategy.exit("L-TP3", from_entry="Long", limit=curTP3, stop=trailSL, qty_percent=tp3QtyPct, comment_loss="Trail")
+if useTrailSL and posShort and not na(trailSL) and not na(curTP1)
+    strategy.exit("S-TP1", from_entry="Short", limit=curTP1, stop=trailSL, qty_percent=tp1QtyPct, comment_loss="Trail")
+    strategy.exit("S-TP2", from_entry="Short", limit=curTP2, stop=trailSL, qty_percent=tp2QtyPct, comment_loss="Trail")
+    strategy.exit("S-TP3", from_entry="Short", limit=curTP3, stop=trailSL, qty_percent=tp3QtyPct, comment_loss="Trail")
+
+if pbRatchetSL and useTrailSL and not na(trailSL) and not na(curSL)
+    bool tightened = false
+    if posLong  and pbBull and trailSL > curSL
+        curSL     := trailSL
+        tightened := true
+    if posShort and pbBear and trailSL < curSL
+        curSL     := trailSL
+        tightened := true
+    if tightened
+        if posLong
+            strategy.exit("L-TP1", from_entry="Long",  limit=curTP1, stop=curSL, qty_percent=tp1QtyPct, comment_loss="PB-Tighten")
+            strategy.exit("L-TP2", from_entry="Long",  limit=curTP2, stop=curSL, qty_percent=tp2QtyPct, comment_loss="PB-Tighten")
+            strategy.exit("L-TP3", from_entry="Long",  limit=curTP3, stop=curSL, qty_percent=tp3QtyPct, comment_loss="PB-Tighten")
+        if posShort
+            strategy.exit("S-TP1", from_entry="Short", limit=curTP1, stop=curSL, qty_percent=tp1QtyPct, comment_loss="PB-Tighten")
+            strategy.exit("S-TP2", from_entry="Short", limit=curTP2, stop=curSL, qty_percent=tp2QtyPct, comment_loss="PB-Tighten")
+            strategy.exit("S-TP3", from_entry="Short", limit=curTP3, stop=curSL, qty_percent=tp3QtyPct, comment_loss="PB-Tighten")
+        if not na(lineSL)
+            line.set_y1(lineSL, curSL)
+            line.set_y2(lineSL, curSL)
+            lvlSL := curSL
+
+if posFlat
+    curSL  := na
+    curTP1 := na
+    curTP2 := na
+    curTP3 := na
+
+if oppExitLong
+    strategy.close("Long",  comment="Flip ▼")
+if oppExitShort
+    strategy.close("Short", comment="Flip ▲")
+
+// Every trend flip is published as a NEW ENTRY with the chart label's exact
+// SL/TP levels — even when the MTF confluence vote blocked the strategy entry
+// (no bare "flip exit" alerts; the confluence count conveys signal strength).
+bool flipNoEntry = trendFlip and not fireLong and not fireShort
+if sendFlipAlerts and flipNoEntry
+    string flipAct   = mtrend == 1 ? "BUY" : "SELL"
+    string flipMsg   = mtrend == 1 ? "Exit bearish → enter bullish" : "Exit bullish → enter bearish"
+    int    flipVotes = mtrend == 1 ? totalBull : totalBear
+    alert(f_alertJson(flipAct, "Trend Flip", flipMsg, lvlEntry, lvlSL, lvlTP1, lvlTP2, lvlTP3, flipVotes), alert.freq_once_per_bar_close)
+
+plotshape(fireLong,  "Long Entry",  shape.labelup,   location.belowbar, color.new(color.green, 0), text="L", textcolor=color.white, size=size.small)
+plotshape(fireShort, "Short Entry", shape.labeldown,  location.abovebar, color.new(color.red,   0), text="S", textcolor=color.white, size=size.small)
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  ALERTS  (legacy alertcondition alerts — kept for app/popup notifications)
+// ══════════════════════════════════════════════════════════════════════════════
+alertcondition(ta.change(mtrend) > 0, title="Chart TF | Main ▲ Bullish", message="[Chart TF] Main Trend turned Bullish")
+alertcondition(ta.change(mtrend) < 0, title="Chart TF | Main ▼ Bearish", message="[Chart TF] Main Trend turned Bearish")
+alertcondition(ta.change(trend)  > 0, title="Chart TF | Renko ▲ Up",     message="[Chart TF] Renko Brick turned Bullish")
+alertcondition(ta.change(trend)  < 0, title="Chart TF | Renko ▼ Down",   message="[Chart TF] Renko Brick turned Bearish")
+
+alertcondition(alertOnA and ta.change(tfA_mtrend) > 0, title="TF A | Main ▲ Bullish", message="[TF A] Main Trend turned Bullish")
+alertcondition(alertOnA and ta.change(tfA_mtrend) < 0, title="TF A | Main ▼ Bearish", message="[TF A] Main Trend turned Bearish")
+alertcondition(alertOnB and ta.change(tfB_mtrend) > 0, title="TF B | Main ▲ Bullish", message="[TF B] Main Trend turned Bullish")
+alertcondition(alertOnB and ta.change(tfB_mtrend) < 0, title="TF B | Main ▼ Bearish", message="[TF B] Main Trend turned Bearish")
+alertcondition(alertOnC and ta.change(tfC_mtrend) > 0, title="TF C | Main ▲ Bullish", message="[TF C] Main Trend turned Bullish")
+alertcondition(alertOnC and ta.change(tfC_mtrend) < 0, title="TF C | Main ▼ Bearish", message="[TF C] Main Trend turned Bearish")
+alertcondition(alertOnD and ta.change(tfD_mtrend) > 0, title="TF D | Main ▲ Bullish", message="[TF D] Main Trend turned Bullish")
+alertcondition(alertOnD and ta.change(tfD_mtrend) < 0, title="TF D | Main ▼ Bearish", message="[TF D] Main Trend turned Bearish")
+
+alertcondition(ta.change(tfA_mtrend) > 0 and ta.change(tfB_mtrend) > 0 and ta.change(tfC_mtrend) > 0 and ta.change(tfD_mtrend) > 0, title="All 4 TFs ▲ Aligned Bullish", message="[MTF] All 4 TFs Main Trend turned Bullish")
+alertcondition(ta.change(tfA_mtrend) < 0 and ta.change(tfB_mtrend) < 0 and ta.change(tfC_mtrend) < 0 and ta.change(tfD_mtrend) < 0, title="All 4 TFs ▼ Aligned Bearish", message="[MTF] All 4 TFs Main Trend turned Bearish")
+
+alertcondition(pbBull,            title="✅ Pullback Entry (Bull) — cooldown filtered",    message="[Pullback] Bullish pullback detected within active uptrend")
+alertcondition(pbBear,            title="✅ Pullback Entry (Bear) — cooldown filtered",    message="[Pullback] Bearish pullback detected within active downtrend")
+alertcondition(brickDisagreeBull, title="🔴 Counter Brick in Bull Trend",                 message="[Pullback] Bearish brick printed inside active bull trend")
+alertcondition(brickDisagreeBear, title="🟢 Counter Brick in Bear Trend",                 message="[Pullback] Bullish brick printed inside active bear trend")
+alertcondition(tslTouchBull,      title="⚡ Zone Touch RAW (Bull) — no cooldown filter",  message="[Pullback] Price retraced to area of interest - Buy")
+alertcondition(tslTouchBear,      title="⚡ Zone Touch RAW (Bear) — no cooldown filter",  message="[Pullback] Price retraced to area of interest - Sell")
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  HORIZONTAL BAR DASHBOARDS  (Compact Bar / Full Bar)
+// ══════════════════════════════════════════════════════════════════════════════
+if barstate.islast and (dashMode == "Compact Bar" or dashMode == "Full Bar")
+    bool isFullBar = dashMode == "Full Bar"
+
+    color cBarBg  = color.new(#0d0d1a, dashAlpha)
+    color cBarHdr = color.new(#0d1b3e, dashAlpha)
+    color cGrn2   = color.new(#2e7d32, 0)
+    color cRed2   = color.new(#c62828, 0)
+    color cGry2   = color.new(#616161, 0)
+    color cTel2   = color.new(#00796b, 0)
+    color cPrp2   = color.new(#7b1fa2, 0)
+    color cBlu2   = color.new(#1565c0, 0)
+    color cOrn2   = color.new(#e65100, 0)
+
+    var string[] hdrs    = array.new<string>(0)
+    var color[]  hdrBgs  = array.new<color>(0)
+    var string[] vals    = array.new<string>(0)
+    var color[]  valCols = array.new<color>(0)
+
+    array.clear(hdrs)
+    array.clear(hdrBgs)
+    array.clear(vals)
+    array.clear(valCols)
+
+    string sym = syminfo.ticker
+    string tf  = timeframe.period == "" ? "Chart" : f_fmtTF(timeframe.period)
+    array.push(hdrs, " " + sym + " ")
+    array.push(hdrBgs, cBarHdr)
+    array.push(vals, " " + tf + " ")
+    array.push(valCols, color.silver)
+
+    bool pL = strategy.position_size > 0
+    bool pS = strategy.position_size < 0
+
+    if showDashPos
+        string posIco = pL ? "▲ LONG" : pS ? "▼ SHORT" : "─ FLAT"
+        color  posBg  = pL ? cGrn2 : pS ? cRed2 : cGry2
+        array.push(hdrs, " POS ")
+        array.push(hdrBgs, posBg)
+        array.push(vals, " " + posIco + " ")
+        array.push(valCols, color.white)
+
+    if showDashTrades
+        array.push(hdrs, " T/W ")
+        array.push(hdrBgs, cGry2)
+        array.push(vals, " " + str.tostring(tradeCnt) + "/" + str.tostring(winCnt) + " ")
+        array.push(valCols, color.white)
+
+    if showDashWR
+        array.push(hdrs, " WR ")
+        array.push(hdrBgs, cTel2)
+        array.push(vals, " " + str.tostring(winRate, "#0.0") + "% ")
+        array.push(valCols, color.white)
+
+    if showDashPF
+        array.push(hdrs, " PF ")
+        array.push(hdrBgs, cPrp2)
+        array.push(vals, " " + str.tostring(pf, "#0.00") + " ")
+        array.push(valCols, color.white)
+
+    if showDashRR
+        array.push(hdrs, " R:R ")
+        array.push(hdrBgs, cTel2)
+        array.push(vals, " " + str.tostring(rr, "#0.00") + " ")
+        array.push(valCols, color.white)
+
+    if showDashNet
+        color netCol = netP >= 0 ? color.lime : color.red
+        array.push(hdrs, " NET ")
+        array.push(hdrBgs, cOrn2)
+        array.push(vals, " $" + str.tostring(netP, "#,##0") + " ")
+        array.push(valCols, netCol)
+
+    if showDashDD
+        array.push(hdrs, " DD ")
+        array.push(hdrBgs, cRed2)
+        array.push(vals, " " + str.tostring(maxDDPct, "#0.0") + "% ")
+        array.push(valCols, color.white)
+
+    if showDashLS
+        array.push(hdrs, " L/S ")
+        array.push(hdrBgs, cBlu2)
+        array.push(vals, " " + str.tostring(lWR, "#0") + "/" + str.tostring(sWR, "#0") + " ")
+        array.push(valCols, color.white)
+
+    if showDashRenko
+        string renkoIco = trend == 1 ? "▲" : trend == -1 ? "▼" : "─"
+        color  renkoBg  = trend == 1 ? cGrn2 : trend == -1 ? cRed2 : cGry2
+        array.push(hdrs, " " + renkoIco + " BRK ")
+        array.push(hdrBgs, renkoBg)
+        array.push(vals, " " + (trend == 1 ? "BULL" : trend == -1 ? "BEAR" : "FLAT") + " ")
+        array.push(valCols, color.silver)
+
+    if showDashMTF
+        string mtfLine = (mtrend == 1 ? "▲" : "▼") + " " + (tfA_mtrend == 1 ? "▲" : "▼") + (tfB_mtrend == 1 ? "▲" : "▼") + (tfC_mtrend == 1 ? "▲" : "▼") + (tfD_mtrend == 1 ? "▲" : "▼")
+        array.push(hdrs, " MTF ")
+        array.push(hdrBgs, cBlu2)
+        array.push(vals, " " + mtfLine + " ")
+        array.push(valCols, color.white)
+
+    if showDashConf
+        int   confBull  = totalBull
+        int   confTotal = useChartTF ? 5 : 4
+        int   confBear  = confTotal - confBull
+        color confBgC   = confBull > confBear ? cGrn2 : confBear > confBull ? cRed2 : cGry2
+        array.push(hdrs, " CONF ")
+        array.push(hdrBgs, confBgC)
+        array.push(vals, " " + str.tostring(confBull) + "/" + str.tostring(confTotal) + " ")
+        array.push(valCols, color.white)
+
+    if showDashSes
+        string sesLine = (useSydney and sesSydneyActive ? "S" : "·") + (useAsia and sesAsiaActive ? "A" : "·") + (useLondon and sesLondonActive ? "L" : "·") + (useUS and sesUSActive ? "U" : "·") + (useCustom and sesCustomActive ? "C" : "·")
+        color  filtBgC = not useSessionFilter ? cGry2 : sessionGate ? cGrn2 : cRed2
+        array.push(hdrs, " SES ")
+        array.push(hdrBgs, filtBgC)
+        array.push(vals, " " + sesLine + " ")
+        array.push(valCols, color.white)
+
+    if useTFAdvisor and isFullBar
+        array.push(hdrs, " BEST ")
+        array.push(hdrBgs, color.new(#fbc02d, 0))
+        array.push(vals, " " + f_fmtTF(bestTF) + " ")
+        array.push(valCols, color.yellow)
+
+    if showDashBreakdown
+        string bdLine = "F:" + str.tostring(flipWR, "#0") + "% PB:" + str.tostring(pbWR, "#0") + "%"
+        color  bdBg   = flipTrades == 0 and pbTrades == 0 ? cGry2 : flipWR > pbWR ? cGrn2 : pbWR > flipWR ? cTel2 : cGry2
+        array.push(hdrs, " F/PB ")
+        array.push(hdrBgs, bdBg)
+        array.push(vals, " " + bdLine + " ")
+        array.push(valCols, color.white)
+
+    int ncols = array.size(hdrs)
+
+    if ncols > 0
+        var table cbar = table.new(f_pos(dashPos), 20, 2, border_width=1, border_color=color.new(#3a3a5c, 50), bgcolor=cBarBg)
+        for c = 0 to 19
+            table.cell(cbar, c, 0, "", bgcolor=color.new(color.black, 100), text_size=size.tiny)
+            table.cell(cbar, c, 1, "", bgcolor=color.new(color.black, 100), text_size=size.tiny)
+        for c = 0 to ncols - 1
+            table.cell(cbar, c, 0, array.get(hdrs, c),    text_color=color.white,           bgcolor=array.get(hdrBgs, c), text_size=size.small, text_halign=text.align_center)
+            table.cell(cbar, c, 1, array.get(vals, c),    text_color=array.get(valCols, c), bgcolor=cBarBg,               text_size=isFullBar ? size.small : size.tiny, text_halign=text.align_center)
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  OPTIMIZATION EXPORT  —  Phase 1 of the "TradingView optimizer"
+//  --------------------------------------------------------------------------
+//  Turn "Optimization export mode" ON, run the backtest, then open the Pine
+//  Logs pane (Pine Editor ▸ "..." menu ▸ Pine logs). It prints ONE header line
+//  (once) plus ONE data row bundling every alpha parameter + the backtest
+//  metrics. Change a parameter, re-run, copy the new data row. Paste the
+//  collected rows into MT5 Optimizer Studio's TradingView ingester to rank them
+//  by robustness. This block only READS existing variables — it never alters
+//  trade logic, so results are identical to the live strategy.
+// ══════════════════════════════════════════════════════════════════════════════
+f_optNum(float x) => str.tostring(x, "#.####")
+
+optExport = input.bool(false, "Optimization export mode (log CSV on last bar)", group="Z • Optimization Export")
+optTag    = input.string("",  "Run tag  (e.g. IS / OOS / free note)",           group="Z • Optimization Export")
+
+var bool   optHdrDone = false
+var string OPT_HEADER = "tag,symbol,chartTF,net,netRet,pf,winRate,maxDDPct,trades,expectancy,rr,longWR,shortWR,flipTrades,flipWR,flipPF,pbTrades,pbWR,pbPF,mode,atrPeriod,boxSize,trendEMA,waitBars,trendThresh,revThresh,entryMode,minVotes,useChartTF,exitOpposite,allowReverse,lvlType,atrLvlLen,slAtrMult,tp1AtrMult,tp2AtrMult,tp3AtrMult,slPct,tp1Pct,tp2Pct,tp3Pct,tp1RR,tp2RR,tp3RR,useTrailSL,trailAtrLen,trailAtrMult,tp1QtyPct,tp2QtyPct,tp3QtyPct,tfA,tfB,tfC,tfD,useSessionFilter"
+
+if optExport and barstate.islast
+    if not optHdrDone
+        log.info(OPT_HEADER)
+        optHdrDone := true
+    row = optTag + "," + syminfo.ticker + "," + timeframe.period
+    row := row + "," + f_optNum(netP) + "," + f_optNum(netRet) + "," + f_optNum(pf) + "," + f_optNum(winRate) + "," + f_optNum(maxDDPct) + "," + str.tostring(tradeCnt) + "," + f_optNum(expect) + "," + f_optNum(rr)
+    row := row + "," + f_optNum(lWR) + "," + f_optNum(sWR) + "," + str.tostring(flipTrades) + "," + f_optNum(flipWR) + "," + f_optNum(flipPF) + "," + str.tostring(pbTrades) + "," + f_optNum(pbWR) + "," + f_optNum(pbPF)
+    row := row + "," + mode + "," + str.tostring(modevalue) + "," + f_optNum(boxsize) + "," + str.tostring(tremalen) + "," + str.tostring(barcountwhip) + "," + f_optNum(thsreversal) + "," + f_optNum(thsreversal2)
+    row := row + "," + entryMode + "," + str.tostring(minVotes) + "," + str.tostring(useChartTF) + "," + str.tostring(exitOpposite) + "," + str.tostring(allowReverse)
+    row := row + "," + lvlType + "," + str.tostring(atrLvlLen) + "," + f_optNum(slAtrMult) + "," + f_optNum(tp1AtrMult) + "," + f_optNum(tp2AtrMult) + "," + f_optNum(tp3AtrMult)
+    row := row + "," + f_optNum(slPct) + "," + f_optNum(tp1Pct) + "," + f_optNum(tp2Pct) + "," + f_optNum(tp3Pct) + "," + f_optNum(tp1RR) + "," + f_optNum(tp2RR) + "," + f_optNum(tp3RR)
+    row := row + "," + str.tostring(useTrailSL) + "," + str.tostring(trailAtrLen) + "," + f_optNum(trailAtrMult) + "," + f_optNum(tp1QtyPct) + "," + f_optNum(tp2QtyPct) + "," + f_optNum(tp3QtyPct)
+    row := row + "," + tfA + "," + tfB + "," + tfC + "," + tfD + "," + str.tostring(useSessionFilter)
+    log.info(row)
