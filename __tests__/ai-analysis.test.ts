@@ -19,7 +19,7 @@ describe("getAiProviderStatus", () => {
     const { getAiProviderStatus } = await import("../server/services/ai-analysis.js");
     const status = getAiProviderStatus();
     expect(status.provider).toBe("anthropic");
-    expect(status.model).toBe("claude-sonnet-4-20250514");
+    expect(status.model).toBe("claude-opus-5");
   });
 
   it("returns atlascloud when AI_PROVIDER=atlascloud", async () => {
@@ -29,7 +29,7 @@ describe("getAiProviderStatus", () => {
     const status = getAiProviderStatus();
     expect(status.provider).toBe("atlascloud");
     expect(status.configured).toBe(true);
-    expect(status.model).toBe("anthropic/claude-sonnet-4.6");
+    expect(status.model).toBe("deepseek-ai/deepseek-v4-pro");
   });
 
   it("uses ATLAS_MODEL override when set", async () => {

@@ -102,7 +102,7 @@ function parseAiResponse(responseText: string): AiAnalysisResult {
 
 // Atlas Cloud — OpenAI-compatible endpoint.
 // Set AI_PROVIDER=atlascloud + ATLASCLOUD_API_KEY to route analysis through Atlas Cloud.
-// Default model: anthropic/claude-sonnet-4.6 (same Claude, via Atlas Cloud).
+// Default model: deepseek-ai/deepseek-v4-pro.
 // Override with ATLAS_MODEL env var to use any other Atlas Cloud LLM.
 async function analyzeViaAtlasCloud(prompt: string): Promise<AiAnalysisResult> {
   const apiKey = process.env.ATLASCLOUD_API_KEY;

@@ -19,19 +19,30 @@ describe("classifySymbol", () => {
     expect(classifySymbol("SILVER")).toBe("metals");
   });
 
-  it("classifies indices as indices", () => {
-    expect(classifySymbol("US30")).toBe("indices");
-    expect(classifySymbol("NAS100")).toBe("indices");
-    expect(classifySymbol("NDX")).toBe("indices");
-    expect(classifySymbol("SPX500")).toBe("indices");
-    expect(classifySymbol("UK100")).toBe("indices");
-    expect(classifySymbol("DE40")).toBe("indices");
-    expect(classifySymbol("DAX")).toBe("indices");
-    expect(classifySymbol("DJI")).toBe("indices");
+  // There is deliberately no "indices" category any more — indices route to the
+  // Stocks channel, because a separate Indices channel created noise. This test
+  // guards that routing rather than the category that used to exist.
+  it("routes indices to the stocks channel", () => {
+    expect(classifySymbol("US30")).toBe("stocks");
+    expect(classifySymbol("NAS100")).toBe("stocks");
+    expect(classifySymbol("NDX")).toBe("stocks");
+    expect(classifySymbol("SPX500")).toBe("stocks");
+    expect(classifySymbol("UK100")).toBe("stocks");
+    expect(classifySymbol("DE40")).toBe("stocks");
+    expect(classifySymbol("DAX")).toBe("stocks");
+    expect(classifySymbol("DJI")).toBe("stocks");
   });
 
-  it("classifies unknown symbols as other", () => {
-    expect(classifySymbol("BTCUSD")).toBe("other");
+  it("classifies unrecognised symbols as other", () => {
+    // Anything 1-5 letters falls through to "stocks" by design, so a genuine
+    // unknown has to be longer than a plausible ticker.
     expect(classifySymbol("UNKNOWN")).toBe("other");
+    expect(classifySymbol("SOMETHINGELSE")).toBe("other");
+  });
+
+  it("classifies BTCUSD as crypto, not other", () => {
+    // Was asserted as "other" before BTCUSD was added to the crypto set.
+    expect(classifySymbol("BTCUSD")).toBe("crypto");
+    expect(classifySymbol("BTC")).toBe("crypto");
   });
 });
