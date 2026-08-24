@@ -105,7 +105,13 @@ const CHANNEL_ENV: Record<SignalCategory | "free" | "brief", string> = {
   metals: "DISCORD_METALS_CHANNEL_ID",
   crypto: "DISCORD_CRYPTO_CHANNEL_ID",
   stocks: "DISCORD_STOCKS_CHANNEL_ID",
-  other: "DISCORD_PAID_CHANNEL_ID",
+  // "other" is the catch-all: symbols the classifier can't place, which in
+  // practice means futures notation (CL1!, ES1!) and broker-suffixed pairs
+  // (XAUUSD.p, EURUSDm). Named DISCORD_PAID_CHANNEL_ID historically, from before
+  // signals were split by asset class — misleading now that every category
+  // channel is paid. Deliberately left unset: nothing currently emits these, and
+  // the warning above means a signal that hits it can no longer vanish quietly.
+  other: "DISCORD_OTHER_CHANNEL_ID",
   brief: "DISCORD_BRIEF_CHANNEL_ID",
 };
 
@@ -172,13 +178,30 @@ export async function postSignalViaBot(signal: BotSignalAlert): Promise<void> {
     if (ch) await sendToChannel(ch, title, [buildTeaserEmbed(signal)]);
   }
 
-  // Post full signal to the category channel
-  const catChannelId = process.env[CHANNEL_ENV[category]];
-  if (catChannelId) {
-    const ch = await getChannel(catChannelId);
-    if (ch) await sendToChannel(ch, title, [buildFullEmbed(signal, category)]);
+  // Post full signal to the category channel.
+  //
+  // Both failure paths below are logged loudly on purpose. Silence here is how a
+  // GOOGL signal reached the free teaser and nothing else for days: the category
+  // channel was unreachable, the `if` skipped it, and no error was raised
+  // anywhere. A dropped paid signal must never be quieter than a delivered one.
+  const catEnv = CHANNEL_ENV[category];
+  const catChannelId = process.env[catEnv];
+  if (!catChannelId) {
+    console.warn(
+      `[discord-bot] ${signal.symbol} classified "${category}" but ${catEnv} is not set — ` +
+        `teaser posted, full signal NOT delivered.`,
+    );
+    return;
   }
-
+  const ch = await getChannel(catChannelId);
+  if (!ch) {
+    console.error(
+      `[discord-bot] ${signal.symbol} classified "${category}": channel ${catChannelId} ` +
+        `(${catEnv}) is unreachable — check the bot has access. Full signal NOT delivered.`,
+    );
+    return;
+  }
+  await sendToChannel(ch, title, [buildFullEmbed(signal, category)]);
 }
 
 function trendGlyph(trend?: string): string {
