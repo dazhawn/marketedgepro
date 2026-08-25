@@ -71,3 +71,75 @@ describe("postSignalViaBot — a dropped signal must never be silent", () => {
     expect(msg).not.toContain("DISCORD_PAID_CHANNEL_ID");
   });
 });
+
+describe("Discord size limits — the 2026-08-25 brief failure", () => {
+  async function mod() {
+    return await import("../server/services/discord-bot.js");
+  }
+  // discord.js is imported per-call: a describe() callback cannot be async, so
+  // there is no top-level await available here.
+  async function embedOf(chars: number, fields = 0) {
+    const { EmbedBuilder } = await import("discord.js");
+    const e = new EmbedBuilder().setTitle("t").setDescription("x".repeat(chars));
+    for (let i = 0; i < fields; i++) e.addFields({ name: "n", value: "v".repeat(100) });
+    return e;
+  }
+
+  it("clamp marks a truncated string and leaves short ones alone", async () => {
+    const { clamp } = await mod();
+    expect(clamp("short", 10)).toBe("short");
+    const out = clamp("y".repeat(50), 10);
+    expect(out).toHaveLength(10);
+    expect(out.endsWith("…")).toBe(true);
+  });
+
+  it("embedLength counts description, title, footer and every field", async () => {
+    const { embedLength } = await mod();
+    const { EmbedBuilder } = await import("discord.js");
+    const e = new EmbedBuilder().setTitle("abc").setDescription("de")
+      .setFooter({ text: "fg" }).addFields({ name: "hi", value: "jkl" });
+    // 3 + 2 + 2 + 2 + 3
+    expect(embedLength(e)).toBe(12);
+  });
+
+  it("keeps one message when the total fits", async () => {
+    const { batchEmbeds } = await mod();
+    expect(batchEmbeds([await embedOf(1000), await embedOf(1000)])).toHaveLength(1);
+  });
+
+  it("splits rather than dropping when the total exceeds Discord's 6000", async () => {
+    const { batchEmbeds } = await mod();
+    // 3 x 2500 = 7500, past the 6000 cap that rejected the real brief.
+    const batches = batchEmbeds([await embedOf(2500), await embedOf(2500), await embedOf(2500)]);
+    expect(batches.length).toBeGreaterThan(1);
+    // Nothing may be lost — every section still ships.
+    expect(batches.flat()).toHaveLength(3);
+  });
+
+  it("never exceeds the char budget within a single message", async () => {
+    const { batchEmbeds, embedLength } = await mod();
+    const batches = batchEmbeds(await Promise.all(Array.from({ length: 8 }, () => embedOf(2000))));
+    for (const b of batches) {
+      const total = b.reduce((n, e) => n + embedLength(e), 0);
+      // A lone oversized embed can't be split further, so only assert the cap
+      // where batching actually had a choice.
+      if (b.length > 1) expect(total).toBeLessThanOrEqual(5800);
+    }
+  });
+
+  it("respects the 10-embed-per-message cap", async () => {
+    const { batchEmbeds } = await mod();
+    const batches = batchEmbeds(await Promise.all(Array.from({ length: 25 }, () => embedOf(10))));
+    expect(batches.every(b => b.length <= 10)).toBe(true);
+    expect(batches.flat()).toHaveLength(25);
+  });
+
+  it("reportIssue logs and never throws when no admin channel is configured", async () => {
+    delete process.env.DISCORD_ADMIN_CHANNEL_ID;
+    const { reportIssue } = await mod();
+    await expect(reportIssue("Test context", new Error("boom"))).resolves.toBeUndefined();
+    const logged = errorSpy.mock.calls.map(c => String(c[0])).join(" ");
+    expect(logged).toContain("Test context");
+    expect(logged).toContain("boom");
+  });
+});

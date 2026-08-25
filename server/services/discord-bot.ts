@@ -59,6 +59,7 @@ async function sendToChannel(ch: SendableChannel, title: string, embeds: EmbedBu
     return true;
   } catch (err) {
     console.error("[discord-bot] send failed:", err);
+    void reportIssue("Discord send failed", err, { channel: ch.id, message: title });
     return false;
   }
 }
@@ -193,6 +194,54 @@ export function clamp(s: string, max: number): string {
   return s.slice(0, max - 1) + "…";
 }
 
+/**
+ * Post an operational problem to the admin channel for later reference.
+ *
+ * Separate from postBriefFailureViaBot, which tells *subscribers* the brief is
+ * late. This is the engineering record: what broke, when, with enough detail to
+ * act on — in a channel members never see.
+ *
+ * Two rules it must never break:
+ *   • It never throws. A reporter that fails loudly inside an error handler
+ *     turns a recoverable problem into an outage.
+ *   • It never routes through sendBatched/sendToChannel, whose own failures
+ *     call back here — that would recurse.
+ */
+export async function reportIssue(
+  context: string,
+  detail: unknown,
+  extra?: Record<string, string>,
+): Promise<void> {
+  const msg = detail instanceof Error ? (detail.stack ?? detail.message) : String(detail);
+  // Always log, even when Discord is unreachable — the log is the fallback.
+  console.error(`[issue] ${context}: ${msg}`);
+
+  const channelId = process.env.DISCORD_ADMIN_CHANNEL_ID;
+  if (!channelId) return;
+
+  try {
+    const ch = await getChannel(channelId);
+    if (!ch) return; // deliberately silent: logging already happened above
+    const embed = new EmbedBuilder()
+      .setTitle(clamp(`⚠️ ${context}`, DISCORD_LIMITS.title))
+      .setDescription("```" + clamp(msg, 1800) + "```")
+      .setColor(0xef4444)
+      .setFooter({ text: "MarketEdgePro · automatic issue report" })
+      .setTimestamp();
+    for (const [k, v] of Object.entries(extra ?? {})) {
+      embed.addFields({
+        name: clamp(k, DISCORD_LIMITS.fieldName),
+        value: clamp(v, DISCORD_LIMITS.fieldValue),
+        inline: true,
+      });
+    }
+    await (ch as TextChannel).send({ embeds: [embed] });
+  } catch (err) {
+    // Terminal on purpose — do not re-enter reportIssue.
+    console.error("[issue] could not post to the admin channel:", err);
+  }
+}
+
 function buildTeaserEmbed(signal: BotSignalAlert): EmbedBuilder {
   const dir = signal.direction.toUpperCase();
   const isBull = dir === "BULLISH" || dir === "BUY";
@@ -269,6 +318,9 @@ export async function postSignalViaBot(signal: BotSignalAlert): Promise<void> {
       `[discord-bot] ${signal.symbol} classified "${category}" but ${catEnv} is not set — ` +
         `teaser posted, full signal NOT delivered.`,
     );
+    void reportIssue("Signal not delivered — channel not configured",
+      `${signal.symbol} classified "${category}" but ${catEnv} is not set. The free teaser posted; the full signal did not.`,
+      { symbol: signal.symbol, category, envVar: catEnv });
     return;
   }
   const ch = await getChannel(catChannelId);
@@ -277,6 +329,9 @@ export async function postSignalViaBot(signal: BotSignalAlert): Promise<void> {
       `[discord-bot] ${signal.symbol} classified "${category}": channel ${catChannelId} ` +
         `(${catEnv}) is unreachable — check the bot has access. Full signal NOT delivered.`,
     );
+    void reportIssue("Signal not delivered — channel unreachable",
+      `${signal.symbol} classified "${category}": the bot cannot reach channel ${catChannelId}. Check it has View Channel + Send Messages there.`,
+      { symbol: signal.symbol, category, channel: catChannelId });
     return;
   }
   await sendToChannel(ch, title, [buildFullEmbed(signal, category)]);

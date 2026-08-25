@@ -4,7 +4,7 @@ import { fetchMarketNews } from "./news";
 import { fetchForexRate, fetchStockQuote } from "./market-data";
 import { analyzeMarket } from "./ai-analysis";
 import { sendMorningBrief } from "./discord";
-import { postMorningBriefViaBot, postBriefFailureViaBot } from "./discord-bot";
+import { postMorningBriefViaBot, postBriefFailureViaBot, reportIssue } from "./discord-bot";
 import { buildMarketPulse } from "./market-pulse";
 import { gatherExtraBriefSections } from "./brief-sources";
 import { fetchEconomicCalendar, getTodayEvents, getTomorrowEvents, filterByWatchlistCurrencies, type CalendarEvent } from "./economic-calendar";
@@ -150,6 +150,10 @@ async function runMorningBrief(source: string) {
     }
   } catch (err) {
     console.error("[scheduler] Morning brief failed:", err);
+    // Subscribers get the short "brief is late" notice; the admin channel gets
+    // the engineering detail. On 2026-08-25 the brief died on a Discord embed
+    // limit and the only record was a log line nobody was watching.
+    await reportIssue("Morning brief failed", err, { trigger: "scheduler" });
     await notifyBriefFailure(String((err as Error)?.message ?? err));
   }
 }
