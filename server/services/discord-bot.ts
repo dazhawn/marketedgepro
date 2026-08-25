@@ -115,6 +115,22 @@ const CHANNEL_ENV: Record<SignalCategory | "free" | "brief", string> = {
   brief: "DISCORD_BRIEF_CHANNEL_ID",
 };
 
+// Discord's hard limits. Exceeding any one of them rejects the WHOLE message
+// with a CombinedPropertyError, so a single long AI summary silently kills the
+// entire morning brief — which is exactly what happened on 2026-08-25.
+export const DISCORD_LIMITS = {
+  title: 256,
+  description: 4096,
+  fieldName: 256,
+  fieldValue: 1024,
+} as const;
+
+/** Truncate to `max`, marking the cut so a clipped value is visibly clipped. */
+export function clamp(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1) + "…";
+}
+
 function buildTeaserEmbed(signal: BotSignalAlert): EmbedBuilder {
   const dir = signal.direction.toUpperCase();
   const isBull = dir === "BULLISH" || dir === "BUY";
@@ -227,7 +243,7 @@ function buildStockAlertsEmbed(alerts: StockAlertBrief[]): EmbedBuilder | null {
   });
   return new EmbedBuilder()
     .setTitle(`🧭 Smart Investor — Buy-Side Watch (${alerts.length})`)
-    .setDescription(lines.join("\n") + "\n\n*RSI / MA-pullback / 52-week / support triggers on large caps.*")
+    .setDescription(clamp(lines.join("\n") + "\n\n*RSI / MA-pullback / 52-week / support triggers on large caps.*", DISCORD_LIMITS.description))
     .setColor(0x8b5cf6)
     .setFooter({ text: "MarketEdgePro · Smart Investor Alerts" });
 }
@@ -243,7 +259,7 @@ function buildPullbackEmbed(result: PullbackBriefResult): EmbedBuilder | null {
   const more = result.total > result.picks.length ? `\n*+${result.total - result.picks.length} more in the full screener.*` : "";
   return new EmbedBuilder()
     .setTitle(`🎯 Top Pullback Picks (${result.picks.length} of ${result.total})`)
-    .setDescription(table + more)
+    .setDescription(clamp(table + more, DISCORD_LIMITS.description))
     .setColor(0x22c55e)
     .setFooter({ text: `MarketEdgePro · Smart Pullback Screener${result.runAt ? ` · Run: ${result.runAt}` : ""}` });
 }
@@ -264,7 +280,7 @@ function buildPortfolioEmbed(result?: PortfolioHealthResult): EmbedBuilder | nul
   });
   return new EmbedBuilder()
     .setTitle(`🩺 EA Portfolio Health (${result.accounts.length})`)
-    .setDescription(lines.join("\n") + "\n\n*RF: 🟢 ≥3 · 🟡 1–3 · 🟠 0–1 · 🔴 net loss. Live data from Myfxbook.*")
+    .setDescription(clamp(lines.join("\n") + "\n\n*RF: 🟢 ≥3 · 🟡 1–3 · 🟠 0–1 · 🔴 net loss. Live data from Myfxbook.*", DISCORD_LIMITS.description))
     .setColor(0x0ea5e9)
     .setFooter({ text: "MarketEdgePro · EA Portfolio Health" });
 }
@@ -368,8 +384,11 @@ export function buildPulseEmbed(pulse: MarketPulse, now: string): EmbedBuilder |
   return new EmbedBuilder()
     .setTitle(`🌅 Market Pulse — ${now}`)
     .setDescription(
-      rows.join("\n") + highlight + staleNote +
-      (pulse.narrative ? `\n\n📝 *${pulse.narrative}*` : "")
+      clamp(
+        rows.join("\n") + highlight + staleNote +
+          (pulse.narrative ? `\n\n📝 *${pulse.narrative}*` : ""),
+        DISCORD_LIMITS.description,
+      )
     )
     .setColor(0x0ea5e9)
     .setFooter({ text: footer });
@@ -413,7 +432,7 @@ export function buildCalendarEmbed(calendarEvents: CalendarEventData[]): EmbedBu
 
   return new EmbedBuilder()
     .setTitle("📅 Economic Calendar — Today & Tomorrow")
-    .setDescription(lines.join("\n") || "*No high/medium impact events*")
+    .setDescription(clamp(lines.join("\n") || "*No high/medium impact events*", DISCORD_LIMITS.description))
     .setColor(0x6366f1)
     .setFooter({ text: "High 🔴  Medium 🟡  Low ⚪ — Times in EST" });
 }
@@ -490,9 +509,16 @@ export async function postMorningBriefViaBot(
     const biasEmoji = direction === "BULLISH" ? "🟢" : "🔴";
     const header = `${biasEmoji} **${direction}** · Score ${confluenceScore}/10 · ${confidence} confidence`;
     const newsLines = headlines.length ? headlines.join("\n") : "*No recent headlines*";
+    // The header carries the score and confidence, so it must survive; the
+    // summary and headlines are what grow unboundedly. Trim the news first and
+    // only then hard-clamp, so a long day loses headlines rather than the
+    // analysis — and never the whole brief.
+    const head = `${header}\n*${summary}*\n\n`;
+    const room = DISCORD_LIMITS.fieldValue - head.length;
+    const news = room > 0 ? clamp(newsLines, room) : "";
     briefEmbed.addFields({
-      name: `${symbol} — ${name}`,
-      value: `${header}\n*${summary}*\n\n${newsLines}`,
+      name: clamp(`${symbol} — ${name}`, DISCORD_LIMITS.fieldName),
+      value: clamp(head + news, DISCORD_LIMITS.fieldValue),
       inline: false,
     });
   }
