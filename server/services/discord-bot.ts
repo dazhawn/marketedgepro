@@ -63,6 +63,68 @@ async function sendToChannel(ch: SendableChannel, title: string, embeds: EmbedBu
   }
 }
 
+/**
+ * Total characters an embed contributes toward Discord's per-message budget:
+ * title + description + footer + every field name and value.
+ */
+export function embedLength(e: EmbedBuilder): number {
+  const d = e.data;
+  let n = (d.title?.length ?? 0) + (d.description?.length ?? 0) + (d.footer?.text?.length ?? 0)
+        + (d.author?.name?.length ?? 0);
+  for (const f of d.fields ?? []) n += f.name.length + f.value.length;
+  return n;
+}
+
+/**
+ * Split embeds into messages that respect Discord's PER-MESSAGE limits: 6000
+ * characters summed across all embeds, and 10 embeds.
+ *
+ * Clamping individual fields is not enough — on 2026-08-25 every field was
+ * within its own limit and the message still bounced with 50035 Invalid Form
+ * Body, because the brief as a whole had grown past 6000. Splitting keeps every
+ * section rather than dropping the ones that no longer fit.
+ */
+export function batchEmbeds(
+  embeds: EmbedBuilder[],
+  maxChars = 5800, // headroom under 6000
+  maxPerMessage = 10,
+): EmbedBuilder[][] {
+  const batches: EmbedBuilder[][] = [];
+  let current: EmbedBuilder[] = [];
+  let used = 0;
+
+  for (const e of embeds) {
+    const len = embedLength(e);
+    const wouldOverflow = current.length > 0 && (used + len > maxChars || current.length >= maxPerMessage);
+    if (wouldOverflow) {
+      batches.push(current);
+      current = [];
+      used = 0;
+    }
+    current.push(e);
+    used += len;
+  }
+  if (current.length) batches.push(current);
+  return batches;
+}
+
+/**
+ * Send embeds as however many messages it takes. Returns true only if every
+ * message landed — a partially delivered brief is a failure worth reporting.
+ */
+async function sendBatched(ch: SendableChannel, title: string, embeds: EmbedBuilder[]): Promise<boolean> {
+  const batches = batchEmbeds(embeds);
+  if (batches.length > 1) {
+    console.log(`[discord-bot] ${title}: ${embeds.length} embeds split across ${batches.length} messages (Discord 6000-char limit)`);
+  }
+  let allOk = true;
+  for (const batch of batches) {
+    const ok = await sendToChannel(ch, title, batch);
+    if (!ok) allOk = false;
+  }
+  return allOk;
+}
+
 function fmt(v: number): string {
   if (v >= 100) return v.toFixed(2);
   if (v >= 1) return v.toFixed(4).replace(/0+$/, "").replace(/\.$/, ".00");
@@ -465,7 +527,7 @@ async function postFreePreviewExtras(pulse: MarketPulse | undefined, calendarEve
       console.error("[discord-bot] free preview channel unreachable — skipping pulse/calendar");
       return;
     }
-    await sendToChannel(freeCh, `Market Pulse — ${now}`, extras);
+    await sendBatched(freeCh, `Market Pulse — ${now}`, extras);
   } catch (err) {
     console.error("[discord-bot] free preview extras failed (brief unaffected):", err);
   }
@@ -544,7 +606,7 @@ export async function postMorningBriefViaBot(
 
   // Serve the paying channel first, then mirror the free-tier sections. Awaited
   // rather than fire-and-forget so failures surface in the logs of this request.
-  const sent = await sendToChannel(ch, `Morning Brief — ${now}`, embeds);
+  const sent = await sendBatched(ch, `Morning Brief — ${now}`, embeds);
   await postFreePreviewExtras(pulse, calendarEvents, now);
   return sent;
 }
