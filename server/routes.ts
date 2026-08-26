@@ -803,7 +803,11 @@ export async function registerRoutes(
         const mediumRel = filterByWatchlistCurrencies(all.filter(e => e.impact === "Medium"), symbols);
         calendarEvents = [...highOnly, ...mediumRel]
           .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      } catch { /* calendar is optional */ }
+      } catch (err) {
+        // Optional section, but silence here means a permanently broken
+        // calendar feed degrades the brief forever with nobody noticing.
+        console.warn("[morning-brief] economic calendar unavailable, section omitted:", err);
+      }
       // Use Discord bot if configured, fall back to webhook
       const sent = process.env.DISCORD_BOT_TOKEN
         ? await postMorningBriefViaBot(briefs, calendarEvents, pulse, extras.stockAlerts, extras.pullbacks, extras.portfolio)

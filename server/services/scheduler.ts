@@ -52,7 +52,11 @@ export async function buildSymbolBrief(symbol: string, name: string): Promise<Sy
       const quote = await fetchStockQuote(symbol);
       marketDataContext = `${symbol} Price: ${quote.price}\nChange: ${quote.change} (${quote.changePercent})\nHigh: ${quote.high}, Low: ${quote.low}`;
     }
-  } catch { /* market data is optional */ }
+  } catch (err) {
+    // Optional, but the AI writes a weaker brief without it — log so a
+    // persistently failing quote feed is visible rather than invisible.
+    console.warn(`[brief] ${symbol}: market data unavailable, analysing on news only:`, err);
+  }
 
   const aiResult = await analyzeMarket(symbol, "1D", newsContext, marketDataContext);
 
