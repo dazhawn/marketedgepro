@@ -68,11 +68,16 @@ Provide your analysis in the following JSON format (respond ONLY with valid JSON
 {
   "direction": "BULLISH" or "BEARISH",
   "confluenceScore": <number from 1-10, where 10 is strongest confluence>,
-  "summary": "<2-3 sentence analysis summary${signalData ? ", referencing the TradingView signal validation" : ""}>",
+  "summary": "<2-3 sentence analysis summary, 500 characters MAXIMUM${signalData ? ", referencing the TradingView signal validation" : ""}>",
   "newsFactors": ["<factor 1>", "<factor 2>", ...],
   "technicalFactors": ["<factor 1>", "<factor 2>", ...],
   "confidence": "HIGH" or "MEDIUM" or "LOW"
 }
+
+The "summary" field is rendered inside a Discord embed field with a hard 1024
+character budget shared with the headlines, so it MUST stay at or under 500
+characters. Write tighter prose rather than running long — a summary over the
+limit is truncated mid-sentence.
 
 IMPORTANT: You MUST commit to either "BULLISH" or "BEARISH" — never output "NEUTRAL". Weigh all available evidence and pick the direction with greater weight. If the picture is mixed, choose the direction that the most significant factors support and reflect uncertainty in a lower confluenceScore and "LOW" confidence instead.
 

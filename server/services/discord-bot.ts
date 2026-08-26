@@ -646,11 +646,9 @@ export async function postMorningBriefViaBot(
   const stockEmbed = buildStockAlertsEmbed(stockAlerts);
   if (stockEmbed) embeds.push(stockEmbed);
 
-  // Top pullback picks from the latest live-screener run
-  if (pullbacks) {
-    const pullbackEmbed = buildPullbackEmbed(pullbacks);
-    if (pullbackEmbed) embeds.push(pullbackEmbed);
-  }
+  // Top pullback picks go to the screener channel, not the brief — they are
+  // screener output and belong with the rest of it. Posted separately below so
+  // a screener-channel problem cannot affect the brief.
 
   // EA portfolio health (Myfxbook)
   const portfolioEmbed = buildPortfolioEmbed(portfolio);
@@ -663,7 +661,42 @@ export async function postMorningBriefViaBot(
   // rather than fire-and-forget so failures surface in the logs of this request.
   const sent = await sendBatched(ch, `Morning Brief — ${now}`, embeds);
   await postFreePreviewExtras(pulse, calendarEvents, now);
+  await postPullbackPicks(pullbacks, now);
   return sent;
+}
+
+/**
+ * Top pullback picks, posted to the screener channel rather than the brief.
+ *
+ * They are screener output and belong with the rest of it. Kept out of the
+ * brief's own send so a screener-channel problem — a permission change, a
+ * missing variable — can never cost subscribers their brief. Failures are
+ * reported to the admin channel rather than swallowed.
+ */
+async function postPullbackPicks(pullbacks: PullbackBriefResult | undefined, now: string): Promise<void> {
+  if (!pullbacks) return;
+  const embed = buildPullbackEmbed(pullbacks);
+  if (!embed) return;
+
+  const channelId = process.env.DISCORD_SCREENER_CHANNEL_ID;
+  if (!channelId) {
+    void reportIssue("Pullback picks not posted — channel not configured",
+      "DISCORD_SCREENER_CHANNEL_ID is not set, so the daily Top Pullback Picks had nowhere to go.",
+      { envVar: "DISCORD_SCREENER_CHANNEL_ID", picks: String(pullbacks.picks.length) });
+    return;
+  }
+  try {
+    const screenerCh = await getChannel(channelId);
+    if (!screenerCh) {
+      void reportIssue("Pullback picks not posted — channel unreachable",
+        `The bot cannot reach screener channel ${channelId}. Check it has View Channel + Send Messages.`,
+        { channel: channelId });
+      return;
+    }
+    await sendBatched(screenerCh, `Top Pullback Picks — ${now}`, [embed]);
+  } catch (err) {
+    void reportIssue("Pullback picks failed to post", err, { channel: channelId });
+  }
 }
 
 // Pad/truncate helper for the monospace screener tables.
