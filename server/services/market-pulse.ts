@@ -130,6 +130,23 @@ export async function buildMarketPulse(): Promise<MarketPulse> {
       return item;
     });
 
+  // fetchYahooSnapshot swallows its errors and returns null, so a total outage
+  // used to produce an empty pulse with nothing logged anywhere — the section
+  // just vanished from the brief. Count the losses and say so.
+  const failed = snapshots.length - items.length;
+  if (failed > 0) {
+    console.warn(`[market-pulse] ${failed}/${snapshots.length} price snapshots failed (Yahoo)`);
+  }
+  if (items.length === 0) {
+    const { reportIssue } = await import("./discord-bot");
+    void reportIssue(
+      "Market Pulse empty — every price fetch failed",
+      `All ${snapshots.length} Yahoo Finance snapshots returned nothing, so Market Pulse was omitted from the brief. ` +
+        `Usually Yahoo rate-limiting or blocking the Railway egress IP; it typically recovers on its own.`,
+      { instruments: String(snapshots.length), technicals: technicals.degraded ? "also degraded" : "ok" },
+    );
+  }
+
   // Build a compact context block for the AI narrative. Technicals are included
   // as observations only — the prompt below is explicit that they must not be
   // read as recommendations.
