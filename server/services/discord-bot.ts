@@ -375,9 +375,12 @@ function buildStockAlertsEmbed(alerts: StockAlertBrief[]): EmbedBuilder | null {
  */
 function buildPullbackEmbeds(result: PullbackBriefResult): EmbedBuilder[] {
   if (!result.picks.length) return [];
-  const header = `${pad("SYM", 6)}${pad("SIGNAL", 9)}${pad("PRICE", 9)}${pad("PF", 7)}${pad("WR%", 6)}WHEN`;
+  // PF and WR% dropped: the extra ~13 columns pushed the table into wrapping
+  // on mobile, where a wrapped monospace table is unreadable. Both remain in
+  // the data and PF still drives the ordering.
+  const header = `${pad("SYM", 6)}${pad("SIGNAL", 9)}${pad("PRICE", 9)}WHEN`;
   const lines = result.picks.map(p =>
-    `${pad(p.symbol, 6)}${pad(p.signal, 9)}${pad(p.price.toFixed(2), 9)}${pad(p.pf.toFixed(2), 7)}${pad(p.wr.toFixed(0), 6)}${p.when}`
+    `${pad(p.symbol, 6)}${pad(p.signal, 9)}${pad(p.price.toFixed(2), 9)}${p.when}`
   );
 
   // Room for the fence, header and a little slack for the "+N more" footer line.
@@ -767,16 +770,16 @@ export async function postScreenerResultsViaBot(
   // for long lists. Direction arrows stay outside the code block via the
   // header; inside we use plain LONG/SHORT text.
   const header = mode === "live"
-    ? `${pad("#", 3)}${pad("SYM", 6)}${pad("SIGNAL", 9)}${pad("PRICE", 9)}${pad("PF", 7)}${pad("WR%", 7)}WHEN`
-    : `${pad("#", 3)}${pad("SYM", 6)}${pad("TREND", 7)}${pad("PRICE", 9)}${pad("PF", 7)}${pad("WR%", 7)}TRADES`;
+    ? `${pad("#", 3)}${pad("SYM", 6)}${pad("SIGNAL", 9)}${pad("PRICE", 9)}WHEN`
+    : `${pad("#", 3)}${pad("SYM", 6)}${pad("TREND", 7)}${pad("PRICE", 9)}TRADES`;
 
   const lines = mode === "live"
     ? rows.map((r, i) => {
         const mark = r.barsAgo === 0 ? "*" : " ";
-        return `${pad(String(i + 1), 3)}${pad(String(r.symbol ?? ""), 6)}${pad(String(r.signal ?? ""), 9)}${pad(Number(r.price).toFixed(2), 9)}${pad(Number(r.histPf).toFixed(2), 7)}${pad(Number(r.wr).toFixed(1), 7)}${r.when ?? ""}${mark === "*" ? "  <- today" : ""}`;
+        return `${pad(String(i + 1), 3)}${pad(String(r.symbol ?? ""), 6)}${pad(String(r.signal ?? ""), 9)}${pad(Number(r.price).toFixed(2), 9)}${r.when ?? ""}${mark === "*" ? "  <- today" : ""}`;
       })
     : rows.map((r, i) =>
-        `${pad(String(i + 1), 3)}${pad(String(r.symbol ?? ""), 6)}${pad(String(r.trend ?? ""), 7)}${pad(Number(r.price).toFixed(2), 9)}${pad(Number(r.pf).toFixed(2), 7)}${pad(Number(r.wr).toFixed(1), 7)}${r.trades ?? ""}`
+        `${pad(String(i + 1), 3)}${pad(String(r.symbol ?? ""), 6)}${pad(String(r.trend ?? ""), 7)}${pad(Number(r.price).toFixed(2), 9)}${r.trades ?? ""}`
       );
 
   const longCount = mode === "options"
