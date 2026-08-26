@@ -109,6 +109,7 @@ function str(v: unknown, ...fallbacks: unknown[]): string {
  * raw CSV column names defensively. Fresh signals (today / yesterday) are
  * preferred, then ranked by historical profit factor.
  */
+/** `limit = 0` returns every pick — the screener channel shows the full run. */
 export async function getPullbackBriefs(limit = 8): Promise<PullbackBriefResult> {
   let run;
   try {
@@ -137,7 +138,7 @@ export async function getPullbackBriefs(limit = 8): Promise<PullbackBriefResult>
   });
 
   return {
-    picks: picks.slice(0, limit),
+    picks: limit > 0 ? picks.slice(0, limit) : picks,
     runAt: (run.meta as any)?.runAt,
     total: picks.length,
   };
@@ -217,7 +218,7 @@ export async function gatherExtraBriefSections(): Promise<ExtraBriefSections> {
       console.error("[brief-sources] getSmartInvestorBriefs failed:", err);
       return [] as StockAlertBrief[];
     }),
-    getPullbackBriefs().catch(err => {
+    getPullbackBriefs(0).catch(err => {
       console.error("[brief-sources] getPullbackBriefs failed:", err);
       return { picks: [], total: 0 } as PullbackBriefResult;
     }),

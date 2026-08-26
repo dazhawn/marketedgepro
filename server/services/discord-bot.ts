@@ -365,20 +365,56 @@ function buildStockAlertsEmbed(alerts: StockAlertBrief[]): EmbedBuilder | null {
     .setFooter({ text: "MarketEdgePro · Smart Investor Alerts" });
 }
 
-// Top pullback picks from the latest Smart Pullback live-screener run.
-function buildPullbackEmbed(result: PullbackBriefResult): EmbedBuilder | null {
-  if (!result.picks.length) return null;
+/**
+ * Top pullback picks from the latest Smart Pullback live-screener run.
+ *
+ * Returns one embed per chunk: the screener channel shows the FULL run, and a
+ * long run's table would otherwise be clamped at an embed's 4096-char
+ * description — silently dropping the tail, which is the opposite of "full".
+ * batchEmbeds() then spreads the chunks across messages as needed.
+ */
+function buildPullbackEmbeds(result: PullbackBriefResult): EmbedBuilder[] {
+  if (!result.picks.length) return [];
   const header = `${pad("SYM", 6)}${pad("SIGNAL", 9)}${pad("PRICE", 9)}${pad("PF", 7)}${pad("WR%", 6)}WHEN`;
   const lines = result.picks.map(p =>
     `${pad(p.symbol, 6)}${pad(p.signal, 9)}${pad(p.price.toFixed(2), 9)}${pad(p.pf.toFixed(2), 7)}${pad(p.wr.toFixed(0), 6)}${p.when}`
   );
-  const table = "```\n" + header + "\n" + lines.join("\n") + "\n```";
-  const more = result.total > result.picks.length ? `\n*+${result.total - result.picks.length} more in the full screener.*` : "";
-  return new EmbedBuilder()
-    .setTitle(`🎯 Top Pullback Picks (${result.picks.length} of ${result.total})`)
-    .setDescription(clamp(table + more, DISCORD_LIMITS.description))
-    .setColor(0x22c55e)
-    .setFooter({ text: `MarketEdgePro · Smart Pullback Screener${result.runAt ? ` · Run: ${result.runAt}` : ""}` });
+
+  // Room for the fence, header and a little slack for the "+N more" footer line.
+  const budget = DISCORD_LIMITS.description - header.length - 120;
+  const chunks: string[][] = [];
+  let current: string[] = [];
+  let used = 0;
+  for (const line of lines) {
+    if (current.length && used + line.length + 1 > budget) {
+      chunks.push(current);
+      current = [];
+      used = 0;
+    }
+    current.push(line);
+    used += line.length + 1;
+  }
+  if (current.length) chunks.push(current);
+
+  const truncated = result.total > result.picks.length;
+  const runNote = result.runAt ? ` · Run: ${result.runAt}` : "";
+
+  return chunks.map((chunkLines, i) => {
+    const table = "```\n" + header + "\n" + chunkLines.join("\n") + "\n```";
+    const isLast = i === chunks.length - 1;
+    const more = isLast && truncated
+      ? `\n*+${result.total - result.picks.length} more in the full screener.*`
+      : "";
+    const part = chunks.length > 1 ? ` (${i + 1}/${chunks.length})` : "";
+    const title = truncated
+      ? `🎯 Top Pullback Picks (${result.picks.length} of ${result.total})${part}`
+      : `🎯 Pullback Picks — full run (${result.total})${part}`;
+    return new EmbedBuilder()
+      .setTitle(clamp(title, DISCORD_LIMITS.title))
+      .setDescription(clamp(table + more, DISCORD_LIMITS.description))
+      .setColor(0x22c55e)
+      .setFooter({ text: `MarketEdgePro · Smart Pullback Screener${runNote}` });
+  });
 }
 
 // EA portfolio health from Myfxbook — equity, live/max drawdown, recovery factor.
@@ -675,8 +711,8 @@ export async function postMorningBriefViaBot(
  */
 async function postPullbackPicks(pullbacks: PullbackBriefResult | undefined, now: string): Promise<void> {
   if (!pullbacks) return;
-  const embed = buildPullbackEmbed(pullbacks);
-  if (!embed) return;
+  const pullbackEmbeds = buildPullbackEmbeds(pullbacks);
+  if (!pullbackEmbeds.length) return;
 
   const channelId = process.env.DISCORD_SCREENER_CHANNEL_ID;
   if (!channelId) {
@@ -693,7 +729,7 @@ async function postPullbackPicks(pullbacks: PullbackBriefResult | undefined, now
         { channel: channelId });
       return;
     }
-    await sendBatched(screenerCh, `Top Pullback Picks — ${now}`, [embed]);
+    await sendBatched(screenerCh, `Top Pullback Picks — ${now}`, pullbackEmbeds);
   } catch (err) {
     void reportIssue("Pullback picks failed to post", err, { channel: channelId });
   }
