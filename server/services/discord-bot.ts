@@ -772,7 +772,11 @@ export async function postScreenerResultsViaBot(
 
   const lines = mode === "live"
     ? rows.map((r, i) => {
-        const mark = r.barsAgo === 0 ? "*" : " ";
+        // Derived from `when`, not `barsAgo`: the live screener DROPS the
+        // BarsAgo column before writing its CSV, so upload_results.py sends
+        // barsAgo: 0 for every row and this marker was appended to all of
+        // them — including rows labelled "2d AGO".
+        const mark = String(r.when ?? "").trim().toUpperCase() === "TODAY" ? "*" : " ";
         return `${pad(String(i + 1), 3)}${pad(String(r.symbol ?? ""), 6)}${pad(String(r.signal ?? ""), 9)}${pad(Number(r.price).toFixed(2), 9)}${pad(Number(r.histPf).toFixed(2), 7)}${pad(Number(r.wr).toFixed(1), 7)}${r.when ?? ""}${mark === "*" ? "  <- today" : ""}`;
       })
     : rows.map((r, i) =>
