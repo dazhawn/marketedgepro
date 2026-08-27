@@ -740,6 +740,56 @@ function pad(s: string, width: number): string {
   return s.length > width ? s.slice(0, width) : s.padEnd(width);
 }
 
+// Right-aligned variant. Numbers are compared down a column, so their decimal
+// points have to line up: left-aligned, 1039.49 and 55.23 sit at different
+// offsets and the eye cannot rank them without reading every digit.
+function rpad(s: string, width: number): string {
+  return s.length > width ? s.slice(0, width) : s.padStart(width);
+}
+
+// Discord's MOBILE client WRAPS code blocks — it does not scroll them. A row
+// wider than roughly 40 characters breaks across two lines and the table stops
+// being a table. Every column below is budgeted against that limit; check the
+// widths in __tests__/discord-bot.test.ts before adding one.
+const MOBILE_COLS = 40;
+
+// "3 bars ago" reads as "3d" — same information, four fewer characters.
+function ageLabel(when: unknown): string {
+  const w = String(when ?? "").trim().toUpperCase();
+  if (!w) return "";
+  if (w === "TODAY") return "0d";
+  const m = w.match(/^(\d+)\s*D/);
+  return m ? `${m[1]}d` : w.slice(0, 3);
+}
+
+/** Builds the monospace screener table. Pure and exported so the mobile width
+ *  budget can be asserted in tests — see MOBILE_COLS. */
+export function buildScreenerTable(
+  mode: "live" | "options",
+  rows: Array<Record<string, any>>
+): { header: string; lines: string[] } {
+  const header = mode === "live"
+    ? `${pad("#", 3)}${pad("SYM", 6)}${pad("D", 2)}${rpad("PRICE", 8)}${rpad("PF", 6)}${rpad("WR%", 6)}${rpad("AGE", 4)}`
+    : `${pad("#", 3)}${pad("SYM", 6)}${pad("D", 2)}${rpad("PRICE", 8)}${rpad("PF", 6)}${rpad("WR%", 6)}${rpad("TRD", 5)}`;
+
+  const dir = (v: unknown) => (String(v ?? "").toUpperCase().includes("SHORT") ? "S" : "L");
+  const n = (v: unknown, dp: number) => {
+    const x = Number(v);
+    return Number.isFinite(x) ? x.toFixed(dp) : "-";
+  };
+
+  const lines = mode === "live"
+    ? rows.map((r, i) =>
+        `${pad(String(i + 1), 3)}${pad(String(r.symbol ?? ""), 6)}${pad(dir(r.signal), 2)}${rpad(n(r.price, 2), 8)}${rpad(n(r.histPf, 2), 6)}${rpad(n(r.wr, 1), 6)}${rpad(ageLabel(r.when), 4)}`
+      )
+    : rows.map((r, i) =>
+        `${pad(String(i + 1), 3)}${pad(String(r.symbol ?? ""), 6)}${pad(dir(r.trend), 2)}${rpad(n(r.price, 2), 8)}${rpad(n(r.pf, 2), 6)}${rpad(n(r.wr, 1), 6)}${rpad(String(r.trades ?? ""), 5)}`
+      );
+
+  return { header, lines };
+}
+
+
 export async function postScreenerResultsViaBot(
   mode: "live" | "options",
   rows: Array<Record<string, any>>,
@@ -763,25 +813,7 @@ export async function postScreenerResultsViaBot(
     ? `🔥 Smart Pullback — Live Signals (${meta?.count ?? rows.length} found)`
     : `📊 Smart Pullback — Options Screener (${meta?.count ?? rows.length} stocks)`;
 
-  // Monospace table rows — aligned columns read far better than prose lines
-  // for long lists. Direction arrows stay outside the code block via the
-  // header; inside we use plain LONG/SHORT text.
-  const header = mode === "live"
-    ? `${pad("#", 3)}${pad("SYM", 6)}${pad("SIGNAL", 9)}${pad("PRICE", 9)}${pad("PF", 7)}${pad("WR%", 7)}WHEN`
-    : `${pad("#", 3)}${pad("SYM", 6)}${pad("TREND", 7)}${pad("PRICE", 9)}${pad("PF", 7)}${pad("WR%", 7)}TRADES`;
-
-  const lines = mode === "live"
-    ? rows.map((r, i) => {
-        // Derived from `when`, not `barsAgo`: the live screener DROPS the
-        // BarsAgo column before writing its CSV, so upload_results.py sends
-        // barsAgo: 0 for every row and this marker was appended to all of
-        // them — including rows labelled "2d AGO".
-        const mark = String(r.when ?? "").trim().toUpperCase() === "TODAY" ? "*" : " ";
-        return `${pad(String(i + 1), 3)}${pad(String(r.symbol ?? ""), 6)}${pad(String(r.signal ?? ""), 9)}${pad(Number(r.price).toFixed(2), 9)}${pad(Number(r.histPf).toFixed(2), 7)}${pad(Number(r.wr).toFixed(1), 7)}${r.when ?? ""}${mark === "*" ? "  <- today" : ""}`;
-      })
-    : rows.map((r, i) =>
-        `${pad(String(i + 1), 3)}${pad(String(r.symbol ?? ""), 6)}${pad(String(r.trend ?? ""), 7)}${pad(Number(r.price).toFixed(2), 9)}${pad(Number(r.pf).toFixed(2), 7)}${pad(Number(r.wr).toFixed(1), 7)}${r.trades ?? ""}`
-      );
+  const { header, lines } = buildScreenerTable(mode, rows);
 
   const longCount = mode === "options"
     ? rows.filter(r => String(r.trend).includes("LONG")).length

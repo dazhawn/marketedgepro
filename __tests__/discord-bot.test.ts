@@ -143,3 +143,57 @@ describe("Discord size limits — the 2026-08-25 brief failure", () => {
     expect(logged).toContain("boom");
   });
 });
+
+describe("Screener tables must fit a phone", () => {
+  // Discord's mobile client WRAPS code blocks rather than scrolling them, so a
+  // row wider than ~40 chars breaks in half and the table stops being a table.
+  // The layout shipped at 56 chars and did exactly that. These tests fail if a
+  // future column pushes it back over the line.
+  const MOBILE_COLS = 40;
+
+  const live = [
+    { symbol: "NTRS", signal: "LONG PB", price: 187.66, histPf: 8.15, wr: 37.5, when: "TODAY" },
+    { symbol: "PH", signal: "LONG PB", price: 1039.49, histPf: 2.13, wr: 25.0, when: "TODAY" },
+    { symbol: "CCI", signal: "SHORT PB", price: 75.54, histPf: 1.5, wr: 40.0, when: "2d AGO" },
+  ];
+
+  it("keeps every live row inside the mobile width", async () => {
+    const { buildScreenerTable } = await import("../server/services/discord-bot");
+    const { header, lines } = buildScreenerTable("live", live);
+    for (const l of [header, ...lines]) expect(l.length).toBeLessThanOrEqual(MOBILE_COLS);
+  });
+
+  it("keeps every options row inside the mobile width", async () => {
+    const { buildScreenerTable } = await import("../server/services/discord-bot");
+    const rows = [{ symbol: "GOOGL", trend: "SHORT", price: 1039.49, pf: 2.13, wr: 25.0, trades: 12 }];
+    const { header, lines } = buildScreenerTable("options", rows);
+    for (const l of [header, ...lines]) expect(l.length).toBeLessThanOrEqual(MOBILE_COLS);
+  });
+
+  it("marks direction per row, so the one short is not lost among longs", async () => {
+    const { buildScreenerTable } = await import("../server/services/discord-bot");
+    const { lines } = buildScreenerTable("live", live);
+    expect(lines[0]).toContain("NTRS  L");
+    expect(lines[2]).toContain("CCI   S");
+  });
+
+  it("renders age as 0d/1d/2d rather than TODAY/1d AGO", async () => {
+    const { buildScreenerTable } = await import("../server/services/discord-bot");
+    const { lines } = buildScreenerTable("live", live);
+    expect(lines[0].trimEnd().endsWith("0d")).toBe(true);
+    expect(lines[2].trimEnd().endsWith("2d")).toBe(true);
+    expect(lines.join("\n")).not.toContain("TODAY");
+  });
+
+  it("right-aligns prices so decimal points line up down the column", async () => {
+    const { buildScreenerTable } = await import("../server/services/discord-bot");
+    const { lines } = buildScreenerTable("live", live);
+    expect(lines[0].indexOf(".")).toBe(lines[1].indexOf("."));
+  });
+
+  it("survives missing numbers instead of printing NaN", async () => {
+    const { buildScreenerTable } = await import("../server/services/discord-bot");
+    const { lines } = buildScreenerTable("live", [{ symbol: "X", signal: "LONG PB" }]);
+    expect(lines[0]).not.toContain("NaN");
+  });
+});
