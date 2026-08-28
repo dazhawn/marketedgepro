@@ -16,7 +16,7 @@ import { gatherExtraBriefSections } from "./services/brief-sources";
 import { fetchEconomicCalendar, getTodayEvents, getTomorrowEvents, filterByHighImpact, filterByWatchlistCurrencies } from "./services/economic-calendar";
 import { requireAuth } from "./auth";
 import { readLiveSignals, readOptionsSignals, runScreener, screenerAvailable } from "./services/pullback-screener";
-import { postScreenerResultsViaBot } from "./services/discord-bot";
+import { postScreenerResultsViaBot, reportIssue } from "./services/discord-bot";
 import { getCatalogue, type Tier } from "./services/settings-library";
 
 const aiRateLimiter = rateLimit({
@@ -869,7 +869,33 @@ export async function registerRoutes(
     try {
       const run = await storage.saveScreenerRun(mode, rows, { ...meta, count: rows.length });
       console.log(`[screener] Stored ${mode} upload: ${rows.length} rows from ${meta.file}`);
-      res.json({ ok: true, id: run.id, mode, count: rows.length });
+
+      // Post to Discord here rather than leaving it to a separate call. The
+      // only other trigger is POST /api/screener/post-discord, which sits
+      // behind requireAuth — a browser session the screener does not have and
+      // cannot get. So nothing called it: results uploaded every morning and
+      // silently never reached the channel. Storing and publishing are one
+      // job, and this is the only place automation can authenticate.
+      //
+      // Never fatal: a Discord outage must not fail the upload, or the run's
+      // results are lost as well as unpublished. The outcome is returned so
+      // the uploader's own log shows whether it posted.
+      let discord: { sent: boolean; reason?: string } = { sent: false, reason: "not attempted" };
+      try {
+        discord = await postScreenerResultsViaBot(mode, rows, { ...meta, count: rows.length });
+        if (discord.sent) {
+          console.log(`[screener] Posted ${mode} results to Discord (${rows.length} rows)`);
+        } else {
+          console.warn(`[screener] Discord post skipped for ${mode}: ${discord.reason}`);
+          await reportIssue("Screener results not posted to Discord", discord.reason ?? "unknown", { mode, rows: String(rows.length), file: String(meta.file) });
+        }
+      } catch (err: any) {
+        discord = { sent: false, reason: err?.message ?? String(err) };
+        console.error(`[screener] Discord post FAILED for ${mode}:`, err);
+        await reportIssue("Screener results not posted to Discord", err, { mode, rows: String(rows.length), file: String(meta.file) });
+      }
+
+      res.json({ ok: true, id: run.id, mode, count: rows.length, discord });
     } catch (err: any) {
       res.status(500).json({ message: err?.message ?? "Failed to store screener results" });
     }
