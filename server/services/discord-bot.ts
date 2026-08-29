@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, EmbedBuilder, TextChannel, ForumChannel, ChannelType, ColorResolvable } from "discord.js";
+import { Client, GatewayIntentBits, EmbedBuilder, TextChannel, ForumChannel, ChannelType, ColorResolvable, PermissionsBitField } from "discord.js";
 
 type SendableChannel = TextChannel | ForumChannel;
 import { classifySymbol, categoryLabel, type SignalCategory } from "./signal-classifier.js";
@@ -872,4 +872,91 @@ export function getBotStatus(): { configured: boolean; channels: Record<string, 
       screener: !!process.env.DISCORD_SCREENER_CHANNEL_ID,
     },
   };
+}
+
+/* ------------------------------------------------------------------ *
+ * Channel preflight
+ *
+ * Every incident this quarter had the same shape: the bot could not post
+ * somewhere, said nothing, and a human noticed days later that an alert had
+ * never arrived. A channel ID never changes when you rename or move a channel,
+ * so config always LOOKS right; what actually breaks is permissions —
+ * dragging a channel into a category re-syncs its overwrites, and the bot
+ * silently loses access to a channel whose ID is still perfectly valid.
+ *
+ * This asks the only question that matters — can the bot post here, right
+ * now — and reports failures to #admin. It never throws: a preflight that
+ * takes the process down is worse than the problem it detects.
+ * ------------------------------------------------------------------ */
+
+export interface ChannelCheck {
+  envVar: string;
+  channelId: string;
+  channelName: string | null;
+  ok: boolean;
+  problem: string | null;
+}
+
+// Posting an embed needs all three. EmbedLinks is the easy one to miss: the
+// bot can send plain text without it, so a half-broken channel looks fine
+// until an actual alert (which is always an embed) is silently rejected.
+const REQUIRED_PERMS = ["ViewChannel", "SendMessages", "EmbedLinks"] as const;
+
+export async function verifyDiscordChannels(): Promise<ChannelCheck[]> {
+  const out: ChannelCheck[] = [];
+  // Discovered from the environment, not hardcoded, so a newly added
+  // DISCORD_*_CHANNEL_ID is covered without anyone remembering to edit a list.
+  const vars = Object.keys(process.env)
+    .filter((k) => k.startsWith("DISCORD_") && k.endsWith("CHANNEL_ID"))
+    .sort();
+
+  for (const envVar of vars) {
+    const channelId = process.env[envVar];
+    if (!channelId) continue; // deliberately unset, e.g. DISCORD_OTHER_CHANNEL_ID
+
+    const ch = await getChannel(channelId);
+    if (!ch) {
+      out.push({ envVar, channelId, channelName: null, ok: false,
+        problem: "not found, or the bot cannot see it (deleted, or access revoked)" });
+      continue;
+    }
+    const me = ch.guild?.members?.me ?? null;
+    if (!me) {
+      out.push({ envVar, channelId, channelName: ch.name, ok: false,
+        problem: "bot is not a member of the guild owning this channel" });
+      continue;
+    }
+    const perms = ch.permissionsFor(me);
+    const missing = REQUIRED_PERMS.filter((flag) => !perms?.has(PermissionsBitField.Flags[flag]));
+    out.push({
+      envVar, channelId, channelName: ch.name,
+      ok: missing.length === 0,
+      problem: missing.length ? `missing ${missing.join(", ")}` : null,
+    });
+  }
+  return out;
+}
+
+/** Runs the preflight and escalates to #admin. Returns the checks for tests. */
+export async function checkChannelsAndReport(trigger: string): Promise<ChannelCheck[]> {
+  let checks: ChannelCheck[] = [];
+  try {
+    checks = await verifyDiscordChannels();
+  } catch (err) {
+    await reportIssue("Discord channel preflight could not run", err, { trigger });
+    return [];
+  }
+  const bad = checks.filter((c) => !c.ok);
+  const healthy = checks.length - bad.length;
+  if (!bad.length) {
+    console.log(`[discord-check] ${healthy}/${checks.length} channels OK (${trigger})`);
+    return checks;
+  }
+  console.error(`[discord-check] ${bad.length} channel(s) unusable (${trigger})`);
+  await reportIssue(
+    "Discord channels are not usable — alerts routed here will not arrive",
+    bad.map((b) => `${b.envVar} -> #${b.channelName ?? "?"} (${b.channelId}): ${b.problem}`).join("\n"),
+    { trigger, failing: String(bad.length), healthy: String(healthy) },
+  );
+  return checks;
 }

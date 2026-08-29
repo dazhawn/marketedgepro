@@ -1,4 +1,5 @@
 import cron from "node-cron";
+import { checkChannelsAndReport } from "./discord-bot";
 import { storage } from "../storage";
 import { fetchMarketNews } from "./news";
 import { fetchForexRate, fetchStockQuote } from "./market-data";
@@ -208,6 +209,22 @@ export function startScheduler() {
   });
 
   console.log("[scheduler] Morning brief scheduled for 8:00 AM EST (Mon-Fri)");
+
+  // Channel preflight. A channel ID survives renames and moves, so config
+  // always looks correct; what breaks is permissions, silently. Run it at
+  // 07:55 — five minutes ahead of the brief — so a break is reported to
+  // #admin BEFORE the day's posts start failing, rather than being noticed
+  // days later by the absence of an alert.
+  cron.schedule("55 7 * * 1-5", async () => {
+    await checkChannelsAndReport("pre-brief");
+  }, {
+    timezone: "America/New_York",
+  });
+
+  // And once at boot, so a deploy that lands mid-day still verifies itself.
+  // Delayed past the 5s startup-recovery window to let the gateway connect.
+  setTimeout(() => { void checkChannelsAndReport("startup"); }, 20_000);
+
 
   // Startup recovery: if the server boots any weekday morning before noon and
   // today's brief hasn't gone out, send it rather than waiting until tomorrow.

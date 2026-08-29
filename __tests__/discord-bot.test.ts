@@ -197,3 +197,41 @@ describe("Screener tables must fit a phone", () => {
     expect(lines[0]).not.toContain("NaN");
   });
 });
+
+describe("Channel preflight — catching a permission break before it costs an alert", () => {
+  const ORIGINAL = { ...process.env };
+  afterEach(() => { process.env = { ...ORIGINAL }; jest.resetModules(); });
+
+  it("discovers channels from the environment, so a new one needs no code change", async () => {
+    process.env.DISCORD_BOT_TOKEN = "";
+    process.env.DISCORD_BRAND_NEW_CHANNEL_ID = "999";
+    const { verifyDiscordChannels } = await import("../server/services/discord-bot");
+    const checks = await verifyDiscordChannels();
+    expect(checks.map(c => c.envVar)).toContain("DISCORD_BRAND_NEW_CHANNEL_ID");
+  });
+
+  it("skips a deliberately unset channel rather than reporting it broken", async () => {
+    process.env.DISCORD_BOT_TOKEN = "";
+    process.env.DISCORD_OTHER_CHANNEL_ID = "";
+    const { verifyDiscordChannels } = await import("../server/services/discord-bot");
+    const checks = await verifyDiscordChannels();
+    expect(checks.map(c => c.envVar)).not.toContain("DISCORD_OTHER_CHANNEL_ID");
+  });
+
+  it("flags an unreachable channel instead of passing it", async () => {
+    process.env.DISCORD_BOT_TOKEN = "";           // no client -> getChannel returns null
+    process.env.DISCORD_STOCKS_CHANNEL_ID = "123";
+    const { verifyDiscordChannels } = await import("../server/services/discord-bot");
+    const checks = await verifyDiscordChannels();
+    const stocks = checks.find(c => c.envVar === "DISCORD_STOCKS_CHANNEL_ID");
+    expect(stocks?.ok).toBe(false);
+    expect(stocks?.problem).toMatch(/not found|cannot see/i);
+  });
+
+  it("never throws, so a failing preflight cannot take the process down", async () => {
+    process.env.DISCORD_BOT_TOKEN = "";
+    process.env.DISCORD_STOCKS_CHANNEL_ID = "123";
+    const { checkChannelsAndReport } = await import("../server/services/discord-bot");
+    await expect(checkChannelsAndReport("test")).resolves.toBeDefined();
+  });
+});
