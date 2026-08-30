@@ -298,3 +298,70 @@ describe("TradingView feed freshness — the 89% nothing was watching", () => {
     expect(() => assessFreshness(bad, new Date("2026-08-27T20:00:00Z"))).not.toThrow();
   });
 });
+
+describe("TradingView alert expiry warnings", () => {
+  const snap = (over: Partial<any> = {}) => ({
+    id: 1, symbol: "OANDA:XAUUSD", kind: "strategy", resolution: "30",
+    active: true, expiration: "2026-09-02T14:40:38Z",
+    lastFire: "2026-08-28T19:00:00Z", ...over,
+  });
+  const SNAPSHOT_AT = "2026-08-30T01:00:00Z";
+
+  it("warns on the real 2 Sep batch from a Sunday-morning run", async () => {
+    const { assessExpiry } = await import("../server/services/alert-expiry");
+    // 30 Aug 09:00 ET = 13:00Z. Expiry is 2 Sep 14:40Z -> ~73.7h out, inside 96h.
+    const r = assessExpiry(SNAPSHOT_AT, [snap()], new Date("2026-08-30T13:00:00Z"));
+    expect(r.expiringSoon).toHaveLength(1);
+    expect(r.expiringAndLive).toHaveLength(1);  // XAUUSD fired 28 Aug
+    expect(r.snapshotStale).toBe(false);
+  });
+
+  it("stays quiet when the next expiry is still weeks away", async () => {
+    const { assessExpiry } = await import("../server/services/alert-expiry");
+    const r = assessExpiry(SNAPSHOT_AT, [snap({ expiration: "2026-09-17T02:48:07Z" })],
+                           new Date("2026-08-30T13:00:00Z"));
+    expect(r.expiringSoon).toHaveLength(0);
+    expect(r.alreadyExpired).toHaveLength(0);
+  });
+
+  it("separates alerts that still fire from ones that never did", async () => {
+    const { assessExpiry } = await import("../server/services/alert-expiry");
+    const r = assessExpiry(SNAPSHOT_AT, [
+      snap({ id: 1, lastFire: "2026-08-28T19:00:00Z" }),   // live
+      snap({ id: 2, lastFire: "2026-06-30T14:59:44Z" }),   // long dormant
+      snap({ id: 3, lastFire: null }),                     // never fired
+    ], new Date("2026-08-30T13:00:00Z"));
+    expect(r.expiringSoon).toHaveLength(3);
+    expect(r.expiringAndLive).toHaveLength(1);
+  });
+
+  it("reports alerts that already expired", async () => {
+    const { assessExpiry } = await import("../server/services/alert-expiry");
+    const r = assessExpiry(SNAPSHOT_AT, [snap()], new Date("2026-09-05T13:00:00Z"));
+    expect(r.alreadyExpired).toHaveLength(1);
+    expect(r.expiringSoon).toHaveLength(0);
+  });
+
+  it("ignores inactive alerts", async () => {
+    const { assessExpiry } = await import("../server/services/alert-expiry");
+    const r = assessExpiry(SNAPSHOT_AT, [snap({ active: false })], new Date("2026-08-30T13:00:00Z"));
+    expect(r.expiringSoon).toHaveLength(0);
+  });
+
+  it("flags its own snapshot as stale rather than reporting confidently from old data", async () => {
+    const { assessExpiry, SNAPSHOT_MAX_AGE_DAYS } = await import("../server/services/alert-expiry");
+    const old = new Date(Date.parse(SNAPSHOT_AT) - (SNAPSHOT_MAX_AGE_DAYS + 5) * 86_400_000);
+    const r = assessExpiry(old.toISOString(), [snap()], new Date(SNAPSHOT_AT));
+    expect(r.snapshotStale).toBe(true);
+  });
+
+  it("loads the committed snapshot and finds the 2 Sep batch", async () => {
+    const { loadSnapshot, assessExpiry } = await import("../server/services/alert-expiry");
+    const { snapshotAt, alerts } = loadSnapshot();
+    expect(alerts.length).toBeGreaterThan(20);
+    const r = assessExpiry(snapshotAt, alerts, new Date("2026-08-30T13:00:00Z"));
+    expect(r.expiringSoon.length).toBe(13);
+    const syms = r.expiringAndLive.map(a => a.symbol.split(":").pop());
+    expect(syms).toContain("XAUUSD");
+  });
+});

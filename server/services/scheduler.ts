@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import { checkChannelsAndReport } from "./discord-bot";
 import { checkSignalFreshnessAndReport } from "./signal-freshness";
+import { checkAlertExpiryAndReport } from "./alert-expiry";
 import { storage } from "../storage";
 import { fetchMarketNews } from "./news";
 import { fetchForexRate, fetchStockQuote } from "./market-data";
@@ -233,6 +234,16 @@ export function startScheduler() {
   // the rule counts market days rather than hours.
   cron.schedule("45 16 * * 1-5", async () => {
     await checkSignalFreshnessAndReport("post-close");
+  }, {
+    timezone: "America/New_York",
+  });
+
+  // Which TradingView alerts are about to expire? Runs every day including
+  // weekends -- expiries do not respect the trading calendar, and a Saturday
+  // expiry would otherwise be found on Monday. Reads a snapshot of the alert
+  // list because Railway cannot reach the MCP connector; see alert-expiry.ts.
+  cron.schedule("0 9 * * *", async () => {
+    await checkAlertExpiryAndReport("daily");
   }, {
     timezone: "America/New_York",
   });
