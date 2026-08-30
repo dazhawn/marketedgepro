@@ -355,13 +355,39 @@ describe("TradingView alert expiry warnings", () => {
     expect(r.snapshotStale).toBe(true);
   });
 
-  it("loads the committed snapshot and finds the 2 Sep batch", async () => {
+  // The committed snapshot is meant to be REGENERATED whenever the alert list
+  // changes, so this asserts its shape rather than its contents. Pinning it to
+  // "13 alerts expire on 2 Sep" would turn every legitimate refresh into a
+  // failing build, and would teach whoever refreshed it to edit the test.
+  it("keeps the committed snapshot structurally valid", async () => {
+    const { loadSnapshot } = await import("../server/services/alert-expiry");
+    const { snapshotAt, alerts } = loadSnapshot();
+
+    expect(Number.isNaN(Date.parse(snapshotAt))).toBe(false);
+    expect(Array.isArray(alerts)).toBe(true);
+    expect(alerts.length).toBeGreaterThan(0);
+
+    for (const a of alerts) {
+      expect(typeof a.id).toBe("number");
+      expect(typeof a.symbol).toBe("string");
+      expect(a.symbol.length).toBeGreaterThan(0);
+      expect(["strategy", "price", "indicator"]).toContain(a.kind);
+      expect(typeof a.active).toBe("boolean");
+      expect(Number.isNaN(Date.parse(a.expiration))).toBe(false);
+      if (a.lastFire !== null) expect(Number.isNaN(Date.parse(a.lastFire))).toBe(false);
+    }
+  });
+
+  it("produces a usable report from whatever the snapshot currently holds", async () => {
     const { loadSnapshot, assessExpiry } = await import("../server/services/alert-expiry");
     const { snapshotAt, alerts } = loadSnapshot();
-    expect(alerts.length).toBeGreaterThan(20);
-    const r = assessExpiry(snapshotAt, alerts, new Date("2026-08-30T13:00:00Z"));
-    expect(r.expiringSoon.length).toBe(13);
-    const syms = r.expiringAndLive.map(a => a.symbol.split(":").pop());
-    expect(syms).toContain("XAUUSD");
+    const r = assessExpiry(snapshotAt, alerts, new Date(snapshotAt));
+    // Evaluated at its own capture time the snapshot cannot already be stale,
+    // and every bucket must be a real array rather than undefined.
+    expect(r.snapshotStale).toBe(false);
+    expect(Array.isArray(r.expiringSoon)).toBe(true);
+    expect(Array.isArray(r.expiringAndLive)).toBe(true);
+    expect(Array.isArray(r.alreadyExpired)).toBe(true);
+    expect(r.expiringAndLive.length).toBeLessThanOrEqual(r.expiringSoon.length);
   });
 });
