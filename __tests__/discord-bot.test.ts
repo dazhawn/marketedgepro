@@ -235,3 +235,66 @@ describe("Channel preflight — catching a permission break before it costs an a
     await expect(checkChannelsAndReport("test")).resolves.toBeDefined();
   });
 });
+
+describe("TradingView feed freshness — the 89% nothing was watching", () => {
+  const sig = (isoDate: string, signalType = "Trend Flip") =>
+    ({ signalType, receivedAt: new Date(isoDate) } as any);
+
+  it("counts market days, so a Friday-to-Monday gap is not an outage", async () => {
+    const { assessFreshness } = await import("../server/services/signal-freshness");
+    // Last signal Friday 15:00 ET, checked Monday afternoon. Zero market days
+    // have completed in between — this is the single most common normal gap,
+    // and six of the eight longest gaps on record look exactly like it.
+    const r = assessFreshness([sig("2026-08-21T19:00:00Z")], new Date("2026-08-24T20:00:00Z"));
+    expect(r.quietMarketDays).toBe(0);
+    expect(r.stale).toBe(false);
+  });
+
+  it("ignores a single quiet weekday", async () => {
+    const { assessFreshness } = await import("../server/services/signal-freshness");
+    // Signal Monday, checked Wednesday: only Tuesday was quiet.
+    const r = assessFreshness([sig("2026-08-24T19:00:00Z")], new Date("2026-08-26T20:00:00Z"));
+    expect(r.quietMarketDays).toBe(1);
+    expect(r.stale).toBe(false);
+  });
+
+  it("flags two consecutive quiet market days", async () => {
+    const { assessFreshness } = await import("../server/services/signal-freshness");
+    const r = assessFreshness([sig("2026-08-24T19:00:00Z")], new Date("2026-08-27T20:00:00Z"));
+    expect(r.quietMarketDays).toBe(2);
+    expect(r.stale).toBe(true);
+  });
+
+  it("would have caught the June 2026 outage", async () => {
+    const { assessFreshness } = await import("../server/services/signal-freshness");
+    // Real event: silent 18 Jun -> 25 Jun. By Monday 22nd, Fri 19 and Mon 22
+    // are both complete quiet market days.
+    const r = assessFreshness([sig("2026-06-18T20:05:00Z")], new Date("2026-06-23T14:00:00Z"));
+    expect(r.stale).toBe(true);
+    expect(r.quietMarketDays).toBeGreaterThanOrEqual(2);
+  });
+
+  it("does not count the daily scan as TradingView activity", async () => {
+    const { assessFreshness } = await import("../server/services/signal-freshness");
+    // Smart Investor kept firing; the TradingView feed is still dead.
+    const r = assessFreshness(
+      [sig("2026-08-24T19:00:00Z"), sig("2026-08-27T21:15:00Z", "Smart Investor")],
+      new Date("2026-08-27T22:00:00Z"),
+    );
+    expect(r.stale).toBe(true);
+    expect(r.totalTradingView).toBe(1);
+  });
+
+  it("treats an empty feed as stale rather than healthy", async () => {
+    const { assessFreshness } = await import("../server/services/signal-freshness");
+    const r = assessFreshness([], new Date("2026-08-27T20:00:00Z"));
+    expect(r.stale).toBe(true);
+    expect(r.lastSignalAt).toBeNull();
+  });
+
+  it("survives rows with an unusable timestamp", async () => {
+    const { assessFreshness } = await import("../server/services/signal-freshness");
+    const bad = [{ signalType: "Trend Flip", receivedAt: null }, { signalType: "Pullback", receivedAt: "nonsense" }] as any;
+    expect(() => assessFreshness(bad, new Date("2026-08-27T20:00:00Z"))).not.toThrow();
+  });
+});

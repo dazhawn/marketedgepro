@@ -1,5 +1,6 @@
 import cron from "node-cron";
 import { checkChannelsAndReport } from "./discord-bot";
+import { checkSignalFreshnessAndReport } from "./signal-freshness";
 import { storage } from "../storage";
 import { fetchMarketNews } from "./news";
 import { fetchForexRate, fetchStockQuote } from "./market-data";
@@ -224,6 +225,18 @@ export function startScheduler() {
   // And once at boot, so a deploy that lands mid-day still verifies itself.
   // Delayed past the 5s startup-recovery window to let the gateway connect.
   setTimeout(() => { void checkChannelsAndReport("startup"); }, 20_000);
+
+  // Is the TradingView feed still alive? It is ~89% of signal volume and the
+  // only major component with no scheduler of its own, so nothing else would
+  // ever notice it going quiet. Runs after the US close, when a full trading
+  // day's worth of evidence exists. See services/signal-freshness.ts for why
+  // the rule counts market days rather than hours.
+  cron.schedule("45 16 * * 1-5", async () => {
+    await checkSignalFreshnessAndReport("post-close");
+  }, {
+    timezone: "America/New_York",
+  });
+
 
 
   // Startup recovery: if the server boots any weekday morning before noon and
