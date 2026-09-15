@@ -7,6 +7,23 @@ import { createServer } from "http";
 import { startScheduler } from "./services/scheduler";
 import { pool } from "./db";
 
+// Last-resort safety net. A promise that rejects with no .catch() -- or an
+// 'error' event with no listener -- terminates the process by default, which is
+// how a single transient failure can take the service down for days. Log and
+// keep running; anything genuinely fatal will still surface in the logs.
+process.on("unhandledRejection", (reason) => {
+  console.error("[fatal] unhandled rejection:", reason);
+});
+
+// After an uncaught exception the process may be in an undefined state, so the
+// correct move is to log it and let the platform restart us clean -- not to
+// keep running on possibly-corrupted state. Requires a restart policy on the
+// hosting side, otherwise this exit means the service stays down.
+process.on("uncaughtException", (err) => {
+  console.error("[fatal] uncaught exception:", err);
+  process.exit(1);
+});
+
 const app = express();
 const httpServer = createServer(app);
 
