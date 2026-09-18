@@ -4,6 +4,7 @@ import { checkSignalFreshnessAndReport } from "./signal-freshness";
 import { checkAlertExpiryAndReport } from "./alert-expiry";
 import { storage } from "../storage";
 import { fetchMarketNews } from "./news";
+import { filterRelevantNews } from "./typesafe";
 import { fetchForexRate, fetchStockQuote } from "./market-data";
 import { analyzeMarket } from "./ai-analysis";
 import { sendMorningBrief } from "./discord";
@@ -38,8 +39,15 @@ export interface SymbolBrief {
 }
 
 export async function buildSymbolBrief(symbol: string, name: string): Promise<SymbolBrief | null> {
-  const articles = await fetchMarketNews(symbol);
-  console.log(`[brief] ${symbol}: ${articles.length} articles`);
+  const rawArticles = await fetchMarketNews(symbol);
+  // Relevance filter — no-op unless TYPESAFE_NEWS_FILTER=1, and fails open.
+  // The providers return anything that MENTIONS the symbol, which for an index
+  // means constituent news and everywhere means roundups and price recaps.
+  const articles = await filterRelevantNews(symbol, rawArticles);
+  console.log(
+    `[brief] ${symbol}: ${articles.length} articles` +
+    (articles.length !== rawArticles.length ? ` (filtered from ${rawArticles.length})` : ""),
+  );
   const headlines = articles.slice(0, 3).map(a => `• ${a.title} *(${a.source})*`);
   const newsContext = articles.length
     ? articles.slice(0, 5).map(a => `- ${a.title} (${a.source})`).join("\n")
