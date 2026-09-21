@@ -131,15 +131,27 @@ async function seedDatabase() {
     console.error("[seed] waitlist table create failed:", err);
   }
 
-  const existing = await storage.getWatchlist();
-  if (existing.length === 0) {
-    await storage.createWatchlistItem({ symbol: "EUR/USD", name: "Euro / US Dollar", type: "forex" });
-    await storage.createWatchlistItem({ symbol: "USD/JPY", name: "US Dollar / Japanese Yen", type: "forex" });
-    await storage.createWatchlistItem({ symbol: "AUD/NZD", name: "Australian Dollar / New Zealand Dollar", type: "forex" });
-    await storage.createWatchlistItem({ symbol: "SPY", name: "S&P 500 ETF", type: "stock" });
-    await storage.createWatchlistItem({ symbol: "^IXIC", name: "NASDAQ Composite", type: "stock" });
-    await storage.createWatchlistItem({ symbol: "XAUUSD", name: "Gold / US Dollar", type: "commodity" });
-    await storage.createWatchlistItem({ symbol: "BTC", name: "Bitcoin", type: "crypto" });
+  // Seeding only matters on a brand-new, empty database — it must never be
+  // able to stop the server from starting. This used to be unguarded: when
+  // Neon's quota was exhausted in Sep 2026, getWatchlist threw, registerRoutes
+  // rejected, httpServer.listen() was never reached, and every new deployment
+  // failed its healthcheck. The running container survived only because it
+  // had booted before the quota ran out — one restart from a total outage,
+  // landing page included. A server with a sick database should still come up
+  // and serve everything that doesn't need it.
+  try {
+    const existing = await storage.getWatchlist();
+    if (existing.length === 0) {
+      await storage.createWatchlistItem({ symbol: "EUR/USD", name: "Euro / US Dollar", type: "forex" });
+      await storage.createWatchlistItem({ symbol: "USD/JPY", name: "US Dollar / Japanese Yen", type: "forex" });
+      await storage.createWatchlistItem({ symbol: "AUD/NZD", name: "Australian Dollar / New Zealand Dollar", type: "forex" });
+      await storage.createWatchlistItem({ symbol: "SPY", name: "S&P 500 ETF", type: "stock" });
+      await storage.createWatchlistItem({ symbol: "^IXIC", name: "NASDAQ Composite", type: "stock" });
+      await storage.createWatchlistItem({ symbol: "XAUUSD", name: "Gold / US Dollar", type: "commodity" });
+      await storage.createWatchlistItem({ symbol: "BTC", name: "Bitcoin", type: "crypto" });
+    }
+  } catch (err) {
+    console.error("[seed] watchlist seed skipped — database unavailable at boot:", err);
   }
 }
 
