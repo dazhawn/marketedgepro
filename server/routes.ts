@@ -16,6 +16,7 @@ import { gatherExtraBriefSections } from "./services/brief-sources";
 import { fetchEconomicCalendar, getTodayEvents, getTomorrowEvents, filterByHighImpact, filterByWatchlistCurrencies } from "./services/economic-calendar";
 import { requireAuth } from "./auth";
 import { readLiveSignals, readOptionsSignals, runScreener, screenerAvailable } from "./services/pullback-screener";
+import { markPending, pendingModes, clearPending } from "./services/screener-queue";
 import { postScreenerResultsViaBot, reportIssue } from "./services/discord-bot";
 import { getCatalogue, type Tier } from "./services/settings-library";
 
@@ -915,6 +916,7 @@ export async function registerRoutes(
     // In the cloud, queue a request the PC poller will pick up (within ~5 min).
     try {
       await storage.createScreenerRequest(mode);
+      markPending(mode);
       res.json({
         queued: true,
         mode,
@@ -935,9 +937,10 @@ export async function registerRoutes(
       return res.status(401).json({ message: "Unauthorized" });
     }
     try {
-      const pending = await storage.getPendingScreenerRequests();
-      const modes = Array.from(new Set(pending.map(r => r.mode)));
-      res.json({ modes });
+      // Answered from memory, not Postgres. This is polled every 5 minutes,
+      // and a query that often kept Neon's compute from ever suspending —
+      // see services/screener-queue.ts.
+      res.json({ modes: await pendingModes() });
     } catch (err: any) {
       res.status(500).json({ message: err?.message ?? "Failed to read pending requests" });
     }
@@ -951,6 +954,7 @@ export async function registerRoutes(
     }
     const mode = req.body?.mode === "options" ? "options" : req.body?.mode === "live" ? "live" : null;
     if (!mode) return res.status(400).json({ message: "Expected { mode: 'live'|'options' }" });
+    clearPending(mode);
     try {
       const cleared = await storage.fulfillScreenerRequests(mode);
       res.json({ ok: true, mode, cleared });
