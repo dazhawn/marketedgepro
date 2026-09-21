@@ -93,7 +93,23 @@ async function runMorningBrief(source: string) {
       return;
     }
   } catch (err) {
-    console.error("[scheduler] Could not read brief state, proceeding anyway:", err);
+    // Don't guess. This used to "proceed anyway", and on 21 Sep 2026 the 8:00
+    // brief went out fine, then the database quota ran out, and the 11:30
+    // retry sweep couldn't read the marker, re-ran the brief, failed on the
+    // database, and posted "Morning brief failed" about a brief members had
+    // already received. If the marker is unreadable the database is down, and
+    // every step of the brief needs it — so there is nothing to gain by
+    // trying. Report what we actually know, admin-only (members may well
+    // already have today's brief), and leave the retry sweep to try again.
+    console.error(`[scheduler] Could not read brief state (${source}), not attempting:`, err);
+    await reportIssue(
+      "Couldn't confirm today's morning brief",
+      `The database is unavailable, so the ${source} run could not check whether today's ` +
+      `brief (${todayEST}) was already sent. It was not re-attempted; if it hadn't gone out, ` +
+      `the next scheduled retry will send it once the database is back.\n\n${String((err as Error)?.message ?? err)}`,
+      { trigger: source, date: todayEST },
+    );
+    return;
   }
 
   console.log(`[scheduler] Running 8am EST morning news brief (triggered by: ${source})...`);

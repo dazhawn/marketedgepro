@@ -17,6 +17,7 @@ import { fetchEconomicCalendar, getTodayEvents, getTomorrowEvents, filterByHighI
 import { requireAuth } from "./auth";
 import { readLiveSignals, readOptionsSignals, runScreener, screenerAvailable } from "./services/pullback-screener";
 import { markPending, pendingModes, clearPending } from "./services/screener-queue";
+import { getDbHealth } from "./services/db-health";
 import { postScreenerResultsViaBot, reportIssue } from "./services/discord-bot";
 import { getCatalogue, type Tier } from "./services/settings-library";
 
@@ -161,6 +162,19 @@ export async function registerRoutes(
 ): Promise<Server> {
 
   app.get("/api/health", (_req, res) => res.json({ ok: true, ts: Date.now() }));
+
+  // Point uptime monitoring HERE, not at /api/health — that one never touches
+  // Postgres and stayed green through the whole Sep 2026 database outage.
+  // Cached so frequent monitor polls can't keep Neon awake (services/db-health.ts).
+  app.get("/api/health/deep", async (_req, res) => {
+    const h = await getDbHealth();
+    res.status(h.ok ? 200 : 503).json({
+      ok: h.ok,
+      db: h.ok ? "ok" : "down",
+      checkedAt: new Date(h.checkedAt).toISOString(),
+      latencyMs: h.latencyMs,
+    });
+  });
 
   // ── Auth endpoints (no auth required) ──────────────────────────────────────
 
