@@ -388,6 +388,75 @@ describe("TradingView alert expiry warnings", () => {
     expect(Array.isArray(r.expiringSoon)).toBe(true);
     expect(Array.isArray(r.expiringAndLive)).toBe(true);
     expect(Array.isArray(r.alreadyExpired)).toBe(true);
+    expect(Array.isArray(r.presumedRenewed)).toBe(true);
+    expect(Array.isArray(r.outdated)).toBe(true);
     expect(r.expiringAndLive.length).toBeLessThanOrEqual(r.expiringSoon.length);
+  });
+
+  // ── Renewals the snapshot never heard about ────────────────────────────
+  // Regression for Sep 2026: the Aug 30 snapshot kept reporting ~28 alerts as
+  // expired every day after Grok had renewed all of them in TradingView.
+
+  it("treats an alert as renewed when its symbol fired after the recorded expiry", async () => {
+    const { assessExpiry } = await import("../server/services/alert-expiry");
+    // Recorded expiry 2 Sep; XAUUSD delivered a webhook on 17 Sep.
+    const r = assessExpiry(SNAPSHOT_AT, [snap()], new Date("2026-09-21T13:00:00Z"), {
+      XAUUSD: new Date("2026-09-17T07:30:00Z"),
+    });
+    expect(r.presumedRenewed).toHaveLength(1);
+    expect(r.alreadyExpired).toHaveLength(0);
+    expect(r.outdated).toHaveLength(0);
+  });
+
+  it("matches evidence on the bare ticker, not the exchange-qualified symbol", async () => {
+    const { assessExpiry } = await import("../server/services/alert-expiry");
+    const r = assessExpiry(SNAPSHOT_AT, [snap({ symbol: "AMEX:SPY" })],
+      new Date("2026-09-21T13:00:00Z"), { SPY: new Date("2026-09-18T18:25:00Z") });
+    expect(r.presumedRenewed).toHaveLength(1);
+  });
+
+  it("does not count a webhook from BEFORE the expiry as evidence of renewal", async () => {
+    const { assessExpiry } = await import("../server/services/alert-expiry");
+    // Fired 1 Sep, expired 2 Sep, now 4 Sep — that signal predates the expiry.
+    const r = assessExpiry(SNAPSHOT_AT, [snap()], new Date("2026-09-04T13:00:00Z"), {
+      XAUUSD: new Date("2026-09-01T12:00:00Z"),
+    });
+    expect(r.presumedRenewed).toHaveLength(0);
+    expect(r.alreadyExpired).toHaveLength(1);
+  });
+
+  it("stops listing an old expiry individually once past the grace window", async () => {
+    const { assessExpiry, EXPIRED_GRACE_HOURS } = await import("../server/services/alert-expiry");
+    const expired = Date.parse("2026-09-02T14:40:38Z");
+    const later = new Date(expired + (EXPIRED_GRACE_HOURS + 24) * 3_600_000);
+    const r = assessExpiry(SNAPSHOT_AT, [snap()], later);
+    expect(r.alreadyExpired).toHaveLength(0);
+    expect(r.outdated).toHaveLength(1);
+  });
+
+  it("reproduces the September noise and shows it gone with evidence", async () => {
+    const { assessExpiry } = await import("../server/services/alert-expiry");
+    // Three alerts the old snapshot said expired on 2 Sep, evaluated on 21 Sep.
+    const stale = [
+      snap({ id: 1, symbol: "OANDA:XAUUSD" }),
+      snap({ id: 2, symbol: "NYSE:KO" }),
+      snap({ id: 3, symbol: "NASDAQ:PLTR", lastFire: "2026-06-30T14:59:44Z" }),
+    ];
+    const now = new Date("2026-09-21T13:00:00Z");
+
+    // Without evidence: nothing is listed individually any more — it is all
+    // well past the grace window, so it becomes a single "outdated" line.
+    const before = assessExpiry(SNAPSHOT_AT, stale, now);
+    expect(before.alreadyExpired).toHaveLength(0);
+    expect(before.outdated).toHaveLength(3);
+
+    // With the webhook evidence Railway actually has: XAUUSD and KO fired
+    // after 2 Sep, PLTR's price alert has not fired since June.
+    const after = assessExpiry(SNAPSHOT_AT, stale, now, {
+      XAUUSD: new Date("2026-09-17T07:30:00Z"),
+      KO: new Date("2026-09-15T13:50:01Z"),
+    });
+    expect(after.presumedRenewed.map(a => a.id).sort()).toEqual([1, 2]);
+    expect(after.outdated.map(a => a.id)).toEqual([3]);
   });
 });
