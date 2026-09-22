@@ -6,10 +6,16 @@ A trading confluence analysis platform designed to support the Predictive Ranges
 
 - **Frontend**: React + Vite + TailwindCSS + shadcn/ui
 - **Backend**: Express.js + TypeScript
-- **Database**: PostgreSQL with Drizzle ORM
-- **AI**: Anthropic Claude (claude-sonnet-4-20250514) for market analysis
-- **Data Sources**: News API + Alpha Vantage News Sentiment (dual-source market news with sentiment scoring), Alpha Vantage (price data/forex rates), TradingView webhooks (strategy signals)
-- **Notifications**: Discord webhook for trading alerts
+- **Database**: PostgreSQL (Neon, Launch plan) with Drizzle ORM
+- **AI**: Anthropic Claude (`claude-opus-5` by default, via `ANTHROPIC_MODEL`) for market analysis, with Atlas Cloud as automatic failover
+- **Data Sources**: Alpha Vantage News Sentiment + Google News RSS (market news), Alpha Vantage (price data/forex rates), TradingView webhooks (strategy signals), SERVER-1 (Smart Pullback screener + Smart Investor)
+- **News relevance**: TypeSafe (Jev) ranks articles before the brief (optional, fails open)
+- **Notifications**: Discord bot posting to per-market channels; admin-only issue reports
+
+> **Operations:** hosting, scheduled jobs, alerts and runbooks live in
+> [`docs/operations.md`](docs/operations.md). Incident write-ups are in
+> [`docs/incidents/`](docs/incidents/). That runbook is the current reference;
+> parts of this file predate it.
 
 ## Key Features
 
@@ -53,18 +59,20 @@ client/src/
 
 ## Environment Variables
 
-- `DATABASE_URL` - PostgreSQL connection string
-- `ANTHROPIC_API_KEY` - Anthropic API key for Claude
-- `NEWS_API_KEY` - NewsAPI.org API key
-- `ALPHA_VANTAGE_KEY` - Alpha Vantage API key
-- `DISCORD_WEBHOOK_URL` - Discord webhook URL for alerts
-- `SESSION_SECRET` - Session secret
+The full, current list is in [`docs/operations.md`](docs/operations.md#environment-variables-railway).
+The essentials: `DATABASE_URL`, `SESSION_SECRET` (also the webhook secret),
+`ANTHROPIC_API_KEY`, `ALPHA_VANTAGE_KEY`, `DISCORD_BOT_TOKEN` and the
+`DISCORD_*_CHANNEL_ID` values.
 
 ## Database Tables
 
 - `analyses` - Stores AI analysis results (symbol, direction, confluence score, summary, factors, signalId)
 - `watchlist` - User's tracked symbols (symbol, name, type)
 - `signals` - Incoming TradingView webhook signals (symbol, timeframe, direction, signalType, price, confluenceData with EMA/RSI/Renko/MTF values)
+- `screener_runs` - Uploaded Smart Pullback results from SERVER-1
+- `screener_requests` - Queued Run Screener requests (the poll is answered from an in-memory mirror; see `services/screener-queue.ts`)
+- `app_state` - Small key/value store for scheduler state that must survive restarts (e.g. the "brief sent today" marker)
+- `waitlist` - Landing-page signups
 
 ## Alpha Vantage Caching
 
