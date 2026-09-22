@@ -26,7 +26,7 @@ export type ScreenerMode = "live" | "options";
 const pending = new Set<ScreenerMode>();
 
 let hydrated = false;
-let lastHydrateAttempt = 0;
+let lastHydrateAttempt = -Infinity;   // "never tried" — earlier than any real time
 // If hydration fails (database down), don't retry on every poll — that would
 // reintroduce exactly the constant wake-ups this module exists to prevent.
 const HYDRATE_RETRY_MS = 30 * 60 * 1000;

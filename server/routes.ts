@@ -18,6 +18,7 @@ import { requireAuth } from "./auth";
 import { readLiveSignals, readOptionsSignals, runScreener, screenerAvailable } from "./services/pullback-screener";
 import { markPending, pendingModes, clearPending } from "./services/screener-queue";
 import { getDbHealth } from "./services/db-health";
+import { noteUnsavedSignal } from "./services/unsaved-signals";
 import { postScreenerResultsViaBot, reportIssue } from "./services/discord-bot";
 import { getCatalogue, type Tier } from "./services/settings-library";
 
@@ -291,16 +292,43 @@ export async function registerRoutes(
         if (input.tp3 != null) confluenceData.tp3 = input.tp3;
         if (input.customData) confluenceData.customData = input.customData as Record<string, unknown>;
 
-        const signal = await storage.createSignal({
+        // Save it — but a database failure must never stop members getting the
+        // signal. This await used to sit outside every inner try, so when the
+        // Neon quota ran out on 21 Sep 2026 each incoming signal threw here and
+        // skipped all three Discord posts. Posting needs no database at all.
+        let signalId: number | null = null;
+        try {
+          const signal = await storage.createSignal({
+            symbol: input.symbol,
+            timeframe: input.timeframe,
+            direction: input.direction,
+            signalType: input.signalType,
+            price: input.price ?? null,
+            confluenceData: Object.keys(confluenceData).length > 0 ? confluenceData as any : null,
+            message: input.message ?? null,
+            analyzed: false,
+          });
+          signalId = signal.id;
+        } catch (err) {
+          noteUnsavedSignal(`${input.symbol} ${input.timeframe}`, err);
+        }
+
+        const rawSignal = {
           symbol: input.symbol,
           timeframe: input.timeframe,
-          direction: input.direction,
-          signalType: input.signalType,
-          price: input.price ?? null,
-          confluenceData: Object.keys(confluenceData).length > 0 ? confluenceData as any : null,
-          message: input.message ?? null,
-          analyzed: false,
-        });
+          direction: input.direction ?? "NEUTRAL",
+          signalType: input.signalType ?? "Indicator Alert",
+          price: input.price,
+          sl: input.sl,
+          tp1: input.tp1,
+          tp2: input.tp2,
+          tp3: input.tp3,
+          emaAlignment: input.emaAlignment,
+          rsiValue: input.rsiValue,
+          renkoTrend: input.renkoTrend,
+          mtfScore: input.mtfScore,
+          confluenceCount: input.confluenceCount,
+        };
 
         if (input.autoAnalyze) {
           // Run AI analysis first so Discord fires with the resolved direction
@@ -336,86 +364,48 @@ export async function registerRoutes(
 
             const aiResult = await analyzeMarket(input.symbol, input.timeframe, newsContext, marketDataContext, undefined, signalContext);
 
-            // Write AI direction back to the signal record
-            await storage.updateSignalDirection(signal.id, aiResult.direction);
-
-            await storage.createAnalysis({
-              symbol: input.symbol,
-              timeframe: input.timeframe,
-              direction: aiResult.direction,
-              confluenceScore: aiResult.confluenceScore,
-              aiSummary: aiResult.summary,
-              newsFactors: aiResult.newsFactors,
-              technicalFactors: aiResult.technicalFactors,
-              priceAtAnalysis: input.price?.toString() ?? null,
-              sentAlerted: false,
-              signalId: signal.id,
-            });
-
-            await storage.markSignalAnalyzed(signal.id);
-
-            // Send Discord with the AI-resolved direction
-            const outSignal = {
-              symbol: input.symbol,
-              timeframe: input.timeframe,
-              direction: aiResult.direction,
-              signalType: input.signalType ?? "Indicator Alert",
-              price: input.price,
-              sl: input.sl,
-              tp1: input.tp1,
-              tp2: input.tp2,
-              tp3: input.tp3,
-              emaAlignment: input.emaAlignment,
-              rsiValue: input.rsiValue,
-              renkoTrend: input.renkoTrend,
-              mtfScore: input.mtfScore,
-              confluenceCount: input.confluenceCount,
-            };
+            // Post FIRST with the AI-resolved direction. These writes used to
+            // come before the post, so a database failure here threw into the
+            // catch below and posted the raw signal, discarding the AI verdict
+            // that had already been paid for.
+            const outSignal = { ...rawSignal, direction: aiResult.direction };
             postSignalViaBot(outSignal).catch(err => console.error("Discord bot signal failed:", err));
             sendPhoneNotification(outSignal).catch(err => console.error("Phone notify failed:", err));
+
+            // Then record the analysis — best effort, and only if the signal
+            // itself was saved (there is nothing to attach it to otherwise).
+            if (signalId !== null) {
+              try {
+                await storage.updateSignalDirection(signalId, aiResult.direction);
+                await storage.createAnalysis({
+                  symbol: input.symbol,
+                  timeframe: input.timeframe,
+                  direction: aiResult.direction,
+                  confluenceScore: aiResult.confluenceScore,
+                  aiSummary: aiResult.summary,
+                  newsFactors: aiResult.newsFactors,
+                  technicalFactors: aiResult.technicalFactors,
+                  priceAtAnalysis: input.price?.toString() ?? null,
+                  sentAlerted: false,
+                  signalId,
+                });
+                await storage.markSignalAnalyzed(signalId);
+              } catch (err) {
+                console.error(`[webhook] signal ${signalId} posted, but saving its analysis failed:`, err);
+              }
+            }
           } catch (err) {
+            // AI, news or market-data failure — post the raw signal instead.
             console.error("Auto-analyze failed for signal:", err);
-            const rawSignal = {
-              symbol: input.symbol,
-              timeframe: input.timeframe,
-              direction: input.direction ?? "NEUTRAL",
-              signalType: input.signalType ?? "Indicator Alert",
-              price: input.price,
-              sl: input.sl,
-              tp1: input.tp1,
-              tp2: input.tp2,
-              tp3: input.tp3,
-              emaAlignment: input.emaAlignment,
-              rsiValue: input.rsiValue,
-              renkoTrend: input.renkoTrend,
-              mtfScore: input.mtfScore,
-              confluenceCount: input.confluenceCount,
-            };
             postSignalViaBot(rawSignal).catch(e => console.error("Discord bot signal failed:", e));
             sendPhoneNotification(rawSignal).catch(e => console.error("Phone notify failed:", e));
           }
         } else {
-        const rawSignal = {
-          symbol: input.symbol,
-          timeframe: input.timeframe,
-          direction: input.direction ?? "NEUTRAL",
-          signalType: input.signalType ?? "Indicator Alert",
-          price: input.price,
-          sl: input.sl,
-          tp1: input.tp1,
-          tp2: input.tp2,
-          tp3: input.tp3,
-          emaAlignment: input.emaAlignment,
-          rsiValue: input.rsiValue,
-          renkoTrend: input.renkoTrend,
-          mtfScore: input.mtfScore,
-          confluenceCount: input.confluenceCount,
-        };
-        postSignalViaBot(rawSignal).catch(err => console.error("Discord bot signal failed:", err));
-        sendPhoneNotification(rawSignal).catch(err => console.error("Phone notify failed:", err));
+          postSignalViaBot(rawSignal).catch(err => console.error("Discord bot signal failed:", err));
+          sendPhoneNotification(rawSignal).catch(err => console.error("Phone notify failed:", err));
         }
 
-        console.log(`Signal ${signal.id} processed`);
+        console.log(`Signal ${signalId ?? "(not saved)"} processed`);
        } catch (bgErr) {
          console.error("Background signal processing failed:", bgErr);
        }
