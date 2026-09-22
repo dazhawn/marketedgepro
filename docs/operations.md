@@ -11,7 +11,7 @@ Incident history lives in [`docs/incidents/`](incidents/).
 
 | Piece | Where | Notes |
 |---|---|---|
-| Web app + API + Discord bot + scheduler | **Railway**, service `dazzling-hope` | `https://dazzling-hope-production-53fb.up.railway.app`. One container; cron jobs run inside it. |
+| Web app + API + Discord bot + scheduler | **Railway**, service `dazzling-hope` | Public site: **`https://www.investntradesmart.com`** (GoDaddy DNS: `www` CNAME → Railway; the apex 301s to `www`). The Railway URL `https://dazzling-hope-production-53fb.up.railway.app` serves the same app. One container; cron jobs run inside it. |
 | Postgres | **Neon**, project *MarketEdgePro*, branch `production` | Launch plan. See [Neon](#neon--the-database). |
 | Smart Pullback screener + poller | **SERVER-1** (headless Windows) | Task Scheduler, runs as S4U so it works with nobody logged in. Pushes results to Railway. |
 | Smart Investor | **SERVER-1** | FastAPI on `127.0.0.1:8123` (not exposed). Pushes signals to Railway and alerts to Discord directly. |
@@ -36,6 +36,11 @@ definitions are backed up in OneDrive at
 
 **UptimeRobot** monitors `/api/health/deep` every 5 minutes. You don't need
 faster checks: the endpoint only probes the database every 25 minutes when healthy.
+
+That monitor watches the **Railway** URL, so it won't notice a broken DNS
+record or an expired certificate on `www.investntradesmart.com`. A second
+monitor on `https://www.investntradesmart.com/api/health/deep` covers what
+members actually load. It shares the same cache, so it adds no database load.
 
 ---
 
