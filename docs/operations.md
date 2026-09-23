@@ -86,12 +86,12 @@ The persisted marker stops restarts from double-sending.
 | Mon–Fri 08:00 | **Smart Pullback Screener**: runs both screeners and uploads. |
 | logon + daily 17:00 | **SmartInvestorService** (the 17:00 trigger restarts it if it died). |
 | Mon–Fri 21:15 | Smart Investor daily scan (APScheduler, inside the service). |
+| Daily 08:30 | **`refresh-tradingview-alert-snapshot`** (a Claude Desktop scheduled task, not Task Scheduler): reads live TradingView alerts through the TradingView Remix connector and uploads them for the 9:00 expiry check. |
 
-**This desktop** (Claude Desktop scheduled task, runs only while the app is open):
-
-| When | Job |
-|---|---|
-| Daily 08:40 | **`refresh-tradingview-alert-snapshot`**: reads live TradingView alerts through the TradingView Remix connector and uploads them for the 9:00 expiry check. |
+**The desktop (CyberBlackwell) runs no scheduled jobs.** The snapshot task
+briefly ran there on 23 Sep 2026 and was moved to SERVER-1 the same day. Its
+inert `SKILL.md` remains at `C:\Users\dazha\.claude\scheduled-tasks\refresh-tradingview-alert-snapshot\`
+on the desktop, kept for recovery. It isn't scheduled.
 
 ---
 
@@ -131,8 +131,8 @@ is, something is polling it.
 
 Railway can't reach TradingView, so the expiry check works from a snapshot of
 the alert list. **This now refreshes itself daily.** The Claude Desktop
-scheduled task **`refresh-tradingview-alert-snapshot`** runs at 8:40 AM ET on
-this desktop. It reads the live list through the **TradingView Remix**
+scheduled task **`refresh-tradingview-alert-snapshot`** runs at 8:30 AM ET on
+**SERVER-1**. It reads the live list through the **TradingView Remix**
 connector and `POST`s it to `/api/alerts/snapshot` (webhook-secret auth). The
 server stores it in `app_state`, and the 9:00 check uses whichever snapshot is
 newer: the uploaded one or `server/data/tradingview-alerts.json`, which is
@@ -141,14 +141,21 @@ baked into the build as the fallback.
 That means whatever Grok renews is picked up the next morning, with no handoff.
 The warning always states which date its list comes from.
 
-**It depends on this desktop:** Claude Desktop must be running (a missed run
-fires on next launch) and the TradingView Remix extension must be connected in
-Chrome's Default profile. If either lapses, the check falls back to the last
-good snapshot. It is never worse than before, just stale.
+**It depends on:** Claude Desktop running on SERVER-1 (a missed run fires on
+next launch), and the TradingView Remix connection staying valid. That
+connection is a stored TradingView session, so if TradingView logs it out, the
+task stops without uploading and reports `tv_not_connected`. Reconnect from the
+TradingView Remix Chrome extension's side panel. If either lapses, the check
+falls back to the last good snapshot. It is never worse than before, just stale.
 
-**To refresh by hand** (e.g. right after a batch of renewals): run the scheduled
-task from the Claude Desktop sidebar (**Run now**), or ask Claude to "refresh
-the TradingView alert snapshot".
+The upload secret comes from `upload_config.json` in the synced
+SmartPullbackSystem folder, the same `SESSION_SECRET` the screener uploads use.
+**If `SESSION_SECRET` is ever rotated, update that file too**, or the snapshot
+upload and the screener uploads both start failing with 401.
+
+**To refresh by hand** (e.g. right after a batch of renewals): **Run now** on
+the task in Claude Desktop on SERVER-1, or ask any Claude session with the
+TradingView Remix connector to "refresh the TradingView alert snapshot".
 
 The endpoint refuses an empty or malformed list rather than storing it, so a
 failed read can never wipe the snapshot and silence every warning.
