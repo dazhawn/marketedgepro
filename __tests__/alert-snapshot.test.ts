@@ -63,6 +63,24 @@ describe("alert snapshot upload", () => {
     expect((await loadCurrentSnapshot()).source).toBe("bundled");
   });
 
+  it("still prefers a real upload when the bundled file is stamped in the future", async () => {
+    const { loadCurrentSnapshot, loadSnapshot } = await import("../server/services/alert-expiry");
+    // Only meaningful while the bundled stamp is in the past, so fake the
+    // clock: set "now" before the bundled time, as happened on 23 Sep 2026.
+    const bundledAt = Date.parse(loadSnapshot().snapshotAt);
+    const realNow = Date.now;
+    Date.now = () => bundledAt - 6 * 3_600_000;
+    try {
+      getAppState.mockResolvedValue(JSON.stringify({
+        snapshotAt: new Date(bundledAt - 3_600_000).toISOString(),   // after "now", before bundled
+        alerts: [RAW],
+      }));
+      expect((await loadCurrentSnapshot()).source).toBe("uploaded");
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
   it("falls back to the bundled snapshot when the database is down", async () => {
     const { loadCurrentSnapshot } = await import("../server/services/alert-expiry");
     getAppState.mockRejectedValue(new Error("exceeded the quota"));

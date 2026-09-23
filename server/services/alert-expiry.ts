@@ -159,7 +159,11 @@ export async function loadCurrentSnapshot(): Promise<{
     if (stored) {
       const parsed = JSON.parse(stored) as { snapshotAt?: string; alerts?: unknown };
       const alerts = normalizeAlerts(parsed.alerts);
-      if (alerts && parsed.snapshotAt && Date.parse(parsed.snapshotAt) > Date.parse(bundled.snapshotAt)) {
+      // Clamp the bundled time to now: a hand-edited file stamped in the
+      // future (it happened, 23 Sep 2026) would otherwise out-rank every
+      // real upload until that time passed.
+      const bundledAt = Math.min(Date.parse(bundled.snapshotAt), Date.now());
+      if (alerts && parsed.snapshotAt && Date.parse(parsed.snapshotAt) > bundledAt) {
         return { snapshotAt: parsed.snapshotAt, alerts, source: "uploaded" };
       }
     }

@@ -87,6 +87,12 @@ The persisted marker stops restarts from double-sending.
 | logon + daily 17:00 | **SmartInvestorService** (the 17:00 trigger restarts it if it died). |
 | Mon–Fri 21:15 | Smart Investor daily scan (APScheduler, inside the service). |
 
+**This desktop** (Claude Desktop scheduled task, runs only while the app is open):
+
+| When | Job |
+|---|---|
+| Daily 08:40 | **`refresh-tradingview-alert-snapshot`**: reads live TradingView alerts through the TradingView Remix connector and uploads them for the 9:00 expiry check. |
+
 ---
 
 ## Neon — the database
@@ -123,18 +129,33 @@ is, something is polling it.
 
 ### Refresh the TradingView alert snapshot
 
-The expiry check reads `server/data/tradingview-alerts.json` because Railway
-can't reach TradingView. It is **inlined at build time**, so a refresh needs a
-commit and a redeploy.
+Railway can't reach TradingView, so the expiry check works from a snapshot of
+the alert list. **This now refreshes itself daily.** The Claude Desktop
+scheduled task **`refresh-tradingview-alert-snapshot`** runs at 8:40 AM ET on
+this desktop. It reads the live list through the **TradingView Remix**
+connector and `POST`s it to `/api/alerts/snapshot` (webhook-secret auth). The
+server stores it in `app_state`, and the 9:00 check uses whichever snapshot is
+newer: the uploaded one or `server/data/tradingview-alerts.json`, which is
+baked into the build as the fallback.
 
-1. In a Claude session with the **TradingView Remix** Chrome extension connected (Chrome, Default profile), call the tvremix MCP `my_alerts`.
-2. Rewrite the file with the live list and set `snapshotAt` to now.
-3. Commit, deploy, push.
+That means whatever Grok renews is picked up the next morning, with no handoff.
+The warning always states which date its list comes from.
 
-You don't need to refresh after every renewal. Alerts that fire regularly prove
-they're alive through their own webhooks and drop off the warning
-automatically. Refreshing matters for **dormant** alerts, which can't vouch for
-themselves.
+**It depends on this desktop:** Claude Desktop must be running (a missed run
+fires on next launch) and the TradingView Remix extension must be connected in
+Chrome's Default profile. If either lapses, the check falls back to the last
+good snapshot. It is never worse than before, just stale.
+
+**To refresh by hand** (e.g. right after a batch of renewals): run the scheduled
+task from the Claude Desktop sidebar (**Run now**), or ask Claude to "refresh
+the TradingView alert snapshot".
+
+The endpoint refuses an empty or malformed list rather than storing it, so a
+failed read can never wipe the snapshot and silence every warning.
+
+To update the **bundled fallback** file itself, set `snapshotAt` to the real
+time the list was read, never a future time. The server clamps future stamps
+anyway, but a hand-edit did get this wrong once.
 
 ### Rotate the Discord invite
 
@@ -162,7 +183,7 @@ The TypeSafe (Jev) filter ranks news before the brief and fails open.
 
 **Core:** `DATABASE_URL`, `SESSION_SECRET` (also the webhook and upload secret: SERVER-1 and Smart Investor must use the same value), `DASHBOARD_PASSWORD`, `NODE_ENV`, `APP_URL` (turns on the keep-alive).
 
-**AI:** `AI_PROVIDER` (`anthropic`), `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` (optional, defaults to `claude-opus-5`), `ATLASCLOUD_API_KEY` + `ATLAS_MODEL` (automatic failover).
+**AI:** `AI_PROVIDER` (`anthropic`), `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` (set to `claude-opus-5-5` since 23 Sep 2026; the code default is `claude-opus-5`), `ATLASCLOUD_API_KEY` + `ATLAS_MODEL` (automatic failover).
 
 **News:** `ALPHA_VANTAGE_KEY` (free tier is rate-limited; a busy day can exhaust it and fall back to Google News RSS), `TYPESAFE_API_KEY`, `TYPESAFE_NEWS_FILTER`.
 

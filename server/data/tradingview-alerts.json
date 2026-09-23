@@ -1,6 +1,6 @@
 {
   "_comment": "Snapshot of the TradingView alert list, pulled via the tvremix MCP connector. Railway cannot reach that connector, so the expiry warning reads this file instead of calling live. Refresh it by re-running the MCP my_alerts call. The checker no longer relies on this being current: an alert whose symbol has delivered a webhook since its recorded expiry is treated as renewed, and expiries older than the grace window collapse into a single 'refresh the snapshot' line rather than being re-listed every day.",
-  "snapshotAt": "2026-09-23T13:00:00Z",
+  "snapshotAt": "2026-09-23T04:00:00Z",
   "alerts": [
     { "id": 5294487396, "symbol": "NASDAQ:SOFI",     "kind": "indicator", "resolution": "60",  "active": true, "expiration": "2026-10-03T18:03:10Z", "lastFire": "2026-09-16T19:30:18Z" },
     { "id": 5294281905, "symbol": "NASDAQ:AAPL",     "kind": "price",     "resolution": "1",   "active": true, "expiration": "2026-10-03T17:56:42Z", "lastFire": null },
