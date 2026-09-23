@@ -19,6 +19,7 @@ import { readLiveSignals, readOptionsSignals, runScreener, screenerAvailable } f
 import { markPending, pendingModes, clearPending } from "./services/screener-queue";
 import { getDbHealth } from "./services/db-health";
 import { noteUnsavedSignal } from "./services/unsaved-signals";
+import { normalizeAlerts, UPLOADED_SNAPSHOT_KEY } from "./services/alert-expiry";
 import { postScreenerResultsViaBot, reportIssue } from "./services/discord-bot";
 import { getCatalogue, type Tier } from "./services/settings-library";
 
@@ -867,6 +868,44 @@ export async function registerRoutes(
       res.json(await latestScreenerResults("options"));
     } catch (err: any) {
       res.status(500).json({ message: err?.message ?? "Failed to read options signals" });
+    }
+  });
+
+  // TradingView alert snapshot upload (authenticated by webhook secret).
+  // Posted daily by a scheduled task that reads the live alert list through
+  // the TradingView Remix connector; the 9:00 expiry check reads it back.
+  // Called about once a day, so it doesn't threaten Neon's idle suspend.
+  app.post("/api/alerts/snapshot", async (req, res) => {
+    const webhookSecret = process.env.SESSION_SECRET;
+    const headerSecret = req.headers["x-webhook-secret"] as string | undefined;
+    if (!webhookSecret || headerSecret !== webhookSecret) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    // Accept { alerts: [...] } or the bare array the connector returns.
+    const raw = Array.isArray(req.body) ? req.body : req.body?.alerts;
+    const alerts = normalizeAlerts(raw);
+    if (!alerts) {
+      // An empty or malformed list is refused rather than stored: a failed
+      // fetch must never wipe the snapshot and silence every warning.
+      return res.status(400).json({
+        message: "Expected a non-empty array of alerts, each with an id, symbol and expiration.",
+      });
+    }
+    const snapshotAt = new Date().toISOString();
+    try {
+      await storage.setAppState(UPLOADED_SNAPSHOT_KEY, JSON.stringify({ snapshotAt, alerts }));
+      const next = alerts
+        .filter(a => a.active && Date.parse(a.expiration) > Date.now())
+        .sort((a, b) => Date.parse(a.expiration) - Date.parse(b.expiration))[0];
+      console.log(`[expiry] snapshot uploaded: ${alerts.length} alerts at ${snapshotAt}`);
+      res.json({
+        ok: true,
+        snapshotAt,
+        count: alerts.length,
+        nextExpiry: next ? { symbol: next.symbol, kind: next.kind, expiration: next.expiration } : null,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message ?? "Failed to store alert snapshot" });
     }
   });
 

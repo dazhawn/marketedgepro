@@ -97,9 +97,76 @@ export interface ExpiryReport {
  */
 export type LastSignalBySymbol = Record<string, Date>;
 
+/** The snapshot baked into the build at deploy time — the fallback. */
 export function loadSnapshot(): { snapshotAt: string; alerts: AlertSnapshotEntry[] } {
   const s = snapshot as unknown as { snapshotAt: string; alerts: AlertSnapshotEntry[] };
   return { snapshotAt: s.snapshotAt, alerts: s.alerts ?? [] };
+}
+
+// ── Uploaded snapshots ─────────────────────────────────────────────────────
+// The bundled file can only change with a commit and redeploy, so it went
+// stale whenever alerts were renewed — on 23 Sep 2026 it warned about a
+// BTCUSD alert already renewed to 22 Oct. A daily task now reads the live list
+// through the TradingView Remix connector and POSTs it to
+// /api/alerts/snapshot, which stores it here. The check uses whichever copy
+// is newer, so the bundled file remains a safety net, not the source.
+
+export const UPLOADED_SNAPSHOT_KEY = "tradingview_alert_snapshot";
+
+/**
+ * Accepts either the tvremix `my_alerts` shape (alert_id, type,
+ * last_fire_time) or our own snapshot shape (id, kind, lastFire), so the
+ * connector's output can be posted as-is. Returns null for anything it can't
+ * trust rather than guessing.
+ */
+export function normalizeAlerts(input: unknown): AlertSnapshotEntry[] | null {
+  if (!Array.isArray(input) || input.length === 0) return null;
+  const out: AlertSnapshotEntry[] = [];
+  for (const raw of input) {
+    if (!raw || typeof raw !== "object") return null;
+    const r = raw as Record<string, unknown>;
+    const id = Number(r.id ?? r.alert_id);
+    const symbol = typeof r.symbol === "string" ? r.symbol : "";
+    const expiration = typeof r.expiration === "string" ? r.expiration : "";
+    if (!Number.isFinite(id) || !symbol || Number.isNaN(Date.parse(expiration))) return null;
+    const lastFireRaw = r.lastFire ?? r.last_fire_time ?? null;
+    const lastFire = typeof lastFireRaw === "string" && !Number.isNaN(Date.parse(lastFireRaw))
+      ? lastFireRaw : null;
+    out.push({
+      id,
+      symbol,
+      kind: String(r.kind ?? r.type ?? "indicator"),
+      resolution: String(r.resolution ?? ""),
+      active: r.active !== false,
+      expiration,
+      lastFire,
+    });
+  }
+  return out;
+}
+
+/**
+ * The newest trustworthy snapshot: the uploaded one if it parses and is newer
+ * than the bundled file, otherwise the bundled file. Never throws.
+ */
+export async function loadCurrentSnapshot(): Promise<{
+  snapshotAt: string; alerts: AlertSnapshotEntry[]; source: "uploaded" | "bundled";
+}> {
+  const bundled = loadSnapshot();
+  try {
+    const { storage } = await import("../storage");
+    const stored = await storage.getAppState(UPLOADED_SNAPSHOT_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored) as { snapshotAt?: string; alerts?: unknown };
+      const alerts = normalizeAlerts(parsed.alerts);
+      if (alerts && parsed.snapshotAt && Date.parse(parsed.snapshotAt) > Date.parse(bundled.snapshotAt)) {
+        return { snapshotAt: parsed.snapshotAt, alerts, source: "uploaded" };
+      }
+    }
+  } catch (err) {
+    console.error("[expiry] could not read uploaded snapshot, using bundled:", err);
+  }
+  return { ...bundled, source: "bundled" };
 }
 
 export function assessExpiry(
@@ -181,7 +248,8 @@ function describe(a: AlertSnapshotEntry, now: Date): string {
 export async function checkAlertExpiryAndReport(trigger: string): Promise<ExpiryReport | null> {
   let report: ExpiryReport;
   try {
-    const { snapshotAt, alerts } = loadSnapshot();
+    const { snapshotAt, alerts, source } = await loadCurrentSnapshot();
+    console.log(`[expiry] using ${source} snapshot from ${snapshotAt}`);
     const evidence = await loadRenewalEvidence(alerts);
     report = assessExpiry(snapshotAt, alerts, new Date(), evidence);
   } catch (err) {
@@ -236,6 +304,17 @@ export async function checkAlertExpiryAndReport(trigger: string): Promise<Expiry
   if (report.expiringSoon.length) {
     lines.push(`**Expiring within ${WARN_WINDOW_HOURS}h (${report.expiringSoon.length}):**`);
     lines.push(...report.expiringSoon.map(a => `• ${describe(a, now)}`));
+    // A renewal before the old expiry leaves no trace this checker can see:
+    // webhook evidence only proves renewal AFTER an expiry, and a dormant
+    // alert produces none at all. On 23 Sep 2026 this warned about a BTCUSD
+    // price alert that had already been renewed to 22 Oct. Say so plainly,
+    // so a stale warning reads as stale rather than as wrong.
+    const asOf = report.snapshotAt?.toISOString().slice(0, 10) ?? "an unknown date";
+    lines.push("");
+    lines.push(
+      `_Based on the alert list captured ${asOf}. If you've renewed any of these since, ` +
+      `refresh the snapshot and this warning clears._`,
+    );
   }
   if (report.expiringAndLive.length) {
     lines.push("");

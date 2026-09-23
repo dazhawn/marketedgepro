@@ -224,7 +224,13 @@ export async function reportIssue(
     if (!ch) return; // deliberately silent: logging already happened above
     const embed = new EmbedBuilder()
       .setTitle(clamp(`⚠️ ${context}`, DISCORD_LIMITS.title))
-      .setDescription("```" + clamp(msg, 1800) + "```")
+      // Only Error objects get a code block — a stack trace needs monospace.
+      // Written messages carry markdown (bold headings, bullets) that a code
+      // block renders as literal asterisks, which is how the expiry warning
+      // came out as "**Expiring within 96h (1):**" in Sep 2026.
+      .setDescription(detail instanceof Error
+        ? "```" + clamp(msg, 1800) + "```"
+        : clamp(msg, DISCORD_LIMITS.description))
       .setColor(0xef4444)
       .setFooter({ text: "MarketEdgePro · automatic issue report" })
       .setTimestamp();
